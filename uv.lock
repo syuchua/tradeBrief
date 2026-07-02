@@ -881,6 +881,7 @@ dependencies = [
     { name = "akshare" },
     { name = "pytest" },
     { name = "pyyaml" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -888,6 +889,7 @@ requires-dist = [
     { name = "akshare", specifier = ">=1.18.64" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "requests", specifier = ">=2.34.2" },
 ]
 
 [[package]]
