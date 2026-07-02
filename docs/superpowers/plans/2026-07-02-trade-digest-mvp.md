@@ -13,7 +13,7 @@
 - Python 3.11, all commands run via `uv run ...` (never bare `python`/`pytest`).
 - Only use the non-eastmoney akshare interfaces verified in spec section 5 (`tool_trade_date_hist_sina`, `stock_zh_index_spot_sina`, `stock_market_activity_legu`, `stock_margin_sse`, `index_us_stock_sina`, `index_global_hist_sina`, `stock_fund_flow_concept`, `fund_etf_category_sina`, `news_economic_baidu`, `stock_news_main_cx`). Never call `*_em` (eastmoney) functions — they are unreachable from this network.
 - No real network calls in automated tests — every `akshare`/`requests`/`smtplib` call is mocked via `unittest.mock.patch`.
-- Every data-fetch function catches its own exceptions internally and returns `None` (or `[]` for list-returning functions) on failure — callers never need to wrap fetch calls in `try/except`.
+- Every data-fetch function catches its own exceptions internally and returns `None` (or `[]` for list-returning functions) on failure — callers never need to wrap fetch calls in `try/except`. The `try` block must wrap the ENTIRE function body (the raw API call AND all subsequent parsing/field access), not just the API call itself — a malformed or unexpected response shape must degrade the same way a network failure does.
 - `holdings.yaml`/`settings.yaml` contain personal financial data and are gitignored; only `.example.yaml` templates are committed.
 - Commit after every task using `git add <files> && git commit -m "..."`.
 
@@ -547,29 +547,29 @@ MAJOR_INDEX_CODES = {"sh000001", "sz399001", "sz399006", "sh000300", "sh000688"}
 def fetch_index_snapshot() -> list[dict] | None:
     try:
         df = ak.stock_zh_index_spot_sina()
+        df = df[df["代码"].isin(MAJOR_INDEX_CODES)]
+        return [
+            {"name": row["名称"], "price": float(row["最新价"]), "change_pct": float(row["涨跌幅"])}
+            for _, row in df.iterrows()
+        ]
     except Exception:
         logger.exception("Failed to fetch index snapshot")
         return None
-    df = df[df["代码"].isin(MAJOR_INDEX_CODES)]
-    return [
-        {"name": row["名称"], "price": float(row["最新价"]), "change_pct": float(row["涨跌幅"])}
-        for _, row in df.iterrows()
-    ]
 
 
 def fetch_market_breadth() -> dict | None:
     try:
         df = ak.stock_market_activity_legu()
+        values = dict(zip(df["item"], df["value"]))
+        return {
+            "up_count": int(values["上涨"]),
+            "down_count": int(values["下跌"]),
+            "limit_up": int(values["涨停"]),
+            "limit_down": int(values["跌停"]),
+        }
     except Exception:
         logger.exception("Failed to fetch market breadth")
         return None
-    values = dict(zip(df["item"], df["value"]))
-    return {
-        "up_count": int(values["上涨"]),
-        "down_count": int(values["下跌"]),
-        "limit_up": int(values["涨停"]),
-        "limit_down": int(values["跌停"]),
-    }
 
 
 def fetch_margin_ratio() -> dict | None:
@@ -577,34 +577,34 @@ def fetch_margin_ratio() -> dict | None:
         end = date.today()
         start = end - timedelta(days=10)
         df = ak.stock_margin_sse(start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"))
+        latest = df.iloc[-1]
+        return {
+            "financing_balance": float(latest["融资余额"]),
+            "financing_buy": float(latest["融资买入额"]),
+        }
     except Exception:
         logger.exception("Failed to fetch margin ratio")
         return None
-    latest = df.iloc[-1]
-    return {
-        "financing_balance": float(latest["融资余额"]),
-        "financing_buy": float(latest["融资买入额"]),
-    }
 
 
 def fetch_us_market_snapshot() -> dict | None:
     try:
         df = ak.index_us_stock_sina(symbol=".INX")
+        latest = df.iloc[-1]
+        return {"sp500_close": float(latest["close"])}
     except Exception:
         logger.exception("Failed to fetch US market snapshot")
         return None
-    latest = df.iloc[-1]
-    return {"sp500_close": float(latest["close"])}
 
 
 def fetch_asia_snapshot() -> dict | None:
     try:
         df = ak.index_global_hist_sina(symbol="NKY")
+        latest = df.iloc[-1]
+        return {"nikkei_close": float(latest["close"])}
     except Exception:
         logger.exception("Failed to fetch Asia market snapshot (best-effort)")
         return None
-    latest = df.iloc[-1]
-    return {"nikkei_close": float(latest["close"])}
 
 
 def fetch_market_overview(session: str) -> dict:
@@ -736,20 +736,20 @@ logger = logging.getLogger(__name__)
 def fetch_sector_flow_ranking(top_n: int) -> dict | None:
     try:
         df = ak.stock_fund_flow_concept(symbol="即时")
+        df = df.sort_values("净额", ascending=False)
+        top = df.head(top_n)
+        bottom = df.tail(top_n).sort_values("净额")
+
+        def to_records(sub_df):
+            return [
+                {"name": row["行业"], "change_pct": float(row["行业-涨跌幅"]), "net_inflow": float(row["净额"])}
+                for _, row in sub_df.iterrows()
+            ]
+
+        return {"top_inflow": to_records(top), "top_outflow": to_records(bottom)}
     except Exception:
         logger.exception("Failed to fetch sector fund flow ranking")
         return None
-    df = df.sort_values("净额", ascending=False)
-    top = df.head(top_n)
-    bottom = df.tail(top_n).sort_values("净额")
-
-    def to_records(sub_df):
-        return [
-            {"name": row["行业"], "change_pct": float(row["行业-涨跌幅"]), "net_inflow": float(row["净额"])}
-            for _, row in sub_df.iterrows()
-        ]
-
-    return {"top_inflow": to_records(top), "top_outflow": to_records(bottom)}
 
 
 def fetch_etf_quotes(codes: list[str]) -> dict:
@@ -757,22 +757,22 @@ def fetch_etf_quotes(codes: list[str]) -> dict:
         return {}
     try:
         df = ak.fund_etf_category_sina(symbol="ETF基金")
+        df = df.assign(short_code=df["代码"].str[-6:])
+        result = {}
+        for code in codes:
+            matches = df[df["short_code"] == code]
+            if matches.empty:
+                continue
+            row = matches.iloc[0]
+            result[code] = {
+                "name": row["名称"],
+                "price": float(row["最新价"]),
+                "change_pct": float(row["涨跌幅"]),
+            }
+        return result
     except Exception:
         logger.exception("Failed to fetch ETF quotes")
         return {}
-    df = df.assign(short_code=df["代码"].str[-6:])
-    result = {}
-    for code in codes:
-        matches = df[df["short_code"] == code]
-        if matches.empty:
-            continue
-        row = matches.iloc[0]
-        result[code] = {
-            "name": row["名称"],
-            "price": float(row["最新价"]),
-            "change_pct": float(row["涨跌幅"]),
-        }
-    return result
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1108,30 +1108,29 @@ def _to_float(value) -> float | None:
 def fetch_macro_calendar(regions: list[str], today: date) -> list[dict]:
     try:
         df = ak.news_economic_baidu(date=today.strftime("%Y%m%d"))
+        df = df[df["地区"].isin(regions)]
+        df = df[df["公布"].notna()]
+
+        results = []
+        for _, row in df.iterrows():
+            actual = _to_float(row["公布"])
+            forecast = _to_float(row["预期"])
+            surprise_pct = None
+            if actual is not None and forecast:
+                surprise_pct = abs(actual - forecast) / abs(forecast) * 100
+            results.append({
+                "region": row["地区"],
+                "event": row["事件"],
+                "actual": actual,
+                "forecast": forecast,
+                "previous": _to_float(row["前值"]),
+                "importance": row["重要性"],
+                "surprise_pct": surprise_pct,
+            })
+        return results
     except Exception:
         logger.exception("Failed to fetch macro economic calendar")
         return []
-
-    df = df[df["地区"].isin(regions)]
-    df = df[df["公布"].notna()]
-
-    results = []
-    for _, row in df.iterrows():
-        actual = _to_float(row["公布"])
-        forecast = _to_float(row["预期"])
-        surprise_pct = None
-        if actual is not None and forecast:
-            surprise_pct = abs(actual - forecast) / abs(forecast) * 100
-        results.append({
-            "region": row["地区"],
-            "event": row["事件"],
-            "actual": actual,
-            "forecast": forecast,
-            "previous": _to_float(row["前值"]),
-            "importance": row["重要性"],
-            "surprise_pct": surprise_pct,
-        })
-    return results
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1208,11 +1207,11 @@ logger = logging.getLogger(__name__)
 def fetch_recent_news(limit: int) -> list[dict]:
     try:
         df = ak.stock_news_main_cx()
+        df = df.head(limit)
+        return [{"tag": row["tag"], "summary": row["summary"], "url": row["url"]} for _, row in df.iterrows()]
     except Exception:
         logger.exception("Failed to fetch financial news")
         return []
-    df = df.head(limit)
-    return [{"tag": row["tag"], "summary": row["summary"], "url": row["url"]} for _, row in df.iterrows()]
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2143,3 +2142,4 @@ git commit -m "Fix live-data issues found during manual end-to-end verification"
 - **Self-review fix applied**: the initial draft delegated *all* priority-tier classification (including macro surprises) to the LLM, which contradicted the approved spec §8 requirement that macro-surprise tier-2 classification be a deterministic code rule. Fixed by adding `build_macro_priority_alerts` (Task 12) as a pure function independent of the LLM call, and narrowing the `SYSTEM_PROMPT`'s `priority_alerts` scope to news-driven (non-macro) events only.
 - **Self-review fix applied**: `macro.py`'s `_to_float` treated NaN forecast/previous values as valid floats (since `float(nan)` doesn't raise), which would have let `surprise_pct` silently become `nan` instead of `None` when akshare omits a forecast. Fixed with an explicit NaN check and covered by `test_fetch_macro_calendar_treats_nan_forecast_as_none` (Task 9).
 - **Self-review fix applied (pre-flight scan)**: the initial draft had `main.py` call `fetch_etf_quotes(watchlist_codes)` and discard the result ("warms up watchlist quotes for future dashboard use") — spec §5/§10 require 关注ETF清单 quotes to actually appear in the report, and a discarded return value with no consumer is dead code a task reviewer would flag as YAGNI-violating speculative code. Fixed by threading `watchlist_quotes` through `build_payload` (Task 12) and `render_email`'s new `_render_watchlist` section (Task 13), consumed by `main.py` (Task 14).
+- **Fix applied during execution (Task 5 review finding)**: every data-fetch function's `try` block wrapped only the raw akshare call, not the subsequent DataFrame parsing — a malformed/unexpected response shape (missing column, empty frame) would raise uncaught, contradicting the Global Constraint that callers never need to wrap fetch calls in `try/except`. This was a plan-mandated defect (the example code itself had this shape) present in Tasks 5, 6, 9, and 10. Fixed in the plan text for all four tasks — the `try` block now wraps the entire function body — and the human confirmed fixing immediately rather than deferring past MVP.
