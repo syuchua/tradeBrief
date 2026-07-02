@@ -33,14 +33,13 @@ trade_digest/
 │   ├── holdings.yaml        # 持仓配置（手动维护）
 │   └── settings.yaml        # 关注ETF清单、板块Top N、优先级阈值、LLM/邮件非敏感配置
 ├── state/
-│   ├── macro_last_seen.json     # 宏观指标"上次见过的最新日期"缓存
 │   └── dca_strategy_last_run.json  # 定投策略上次生成日期缓存
 ├── data/
 │   ├── calendar.py          # A股交易日历判断
-│   ├── market_overview.py   # 大盘指数、涨跌家数、多空比例(两融)、北向资金、隔夜美股/日韩/美股盘前
-│   ├── sector_flow.py       # 全市场行业/概念资金流排行 + 关注ETF清单行情
-│   ├── macro.py             # 中美宏观数据，含"是否新发布"判断（对比state缓存）
-│   ├── news.py              # 财经快讯抓取（用于消息面优先级分级）
+│   ├── market_overview.py   # 大盘指数、涨跌家数、多空比例(两融)、隔夜美股/日韩/美股盘前
+│   ├── sector_flow.py       # 全市场概念板块资金流排行 + 关注ETF清单行情
+│   ├── macro.py             # 全球宏观经济日历，当天"公布"字段非空即视为"今日新发布"
+│   ├── news.py              # 财经新闻抓取（用于消息面优先级分级）
 │   └── holdings_quotes.py   # 持仓标的（黄金/证券/ETF）现价
 ├── analysis/
 │   ├── holdings_alert.py    # 目标价/止盈止损规则触发判断（结构化condition，非任意表达式）
@@ -55,30 +54,32 @@ trade_digest/
 
 1. `main.py` 接收 `--session morning|evening` 参数
 2. `calendar.py` 判断今日是否A股交易日，非交易日直接退出（不抓数据、不调用LLM、不发邮件）
-3. 并行抓取：大盘概览、板块/ETF资金流、持仓现价、财经快讯；`macro.py`额外对比 `state/macro_last_seen.json` 判断当天是否有新宏观数据发布
+3. 并行抓取：大盘概览、板块/ETF资金流、持仓现价、财经新闻；`macro.py`查询当天全球经济日历，筛选"公布"字段非空的条目即为"今日新发布"（无需额外的状态缓存）
 4. `holdings_alert.py` 用holdings.yaml中的规则做纯代码判断（如黄金现价≥4380）
 5. 判断是否到期需要生成"定投策略参考"（对比 `state/dca_strategy_last_run.json`，仅晚间场次可能触发）
 6. `synthesize.py` 把以上数据分域打包为结构化payload，单次调用LLM，返回结构化JSON（市场解读、板块解读、宏观解读、持仓打分、优先级分级消息、定投策略建议）
 7. `emailer.py` 按session类型渲染对应邮件板块并通过SMTP发送
 8. 任一环节的数据缺失/失败仅做局部降级，不阻断整体流程（见第10节）
 
-## 5. 数据源（akshare为主，具体函数名以实现时核实文档为准）
+## 5. 数据源（akshare，已实测验证连通性与字段）
 
-| 模块 | 数据 | 参考接口 |
-|---|---|---|
-| 交易日历 | A股是否交易日判断 | `tool_trade_date_hist_sina` |
-| 大盘概览 | 指数行情、涨跌家数、赚钱效应 | `stock_zh_index_spot_em`、`stock_market_activity_legu` |
-| 多空比例 | 两融数据 | `stock_margin_detail_sse` / `szse` |
-| 北向资金 | 沪深港通资金流向 | `stock_hsgt_fund_flow_summary_em` |
-| 隔夜美股/日韩/美股盘前 | 美股三大指数、期货、日经/KOSPI | `index_us_stock_sina`、`index_global_hist_em` |
-| 全市场资金流排行 | 行业+概念板块净流入/流出Top N | `stock_sector_fund_flow_rank`、`stock_fund_flow_concept` |
-| 关注ETF行情 | 持仓相关ETF涨跌幅/成交额 | `fund_etf_spot_em` |
-| 中国宏观 | LPR/CPI/PMI/社融/GDP，含今值/预测值/前值 | `macro_china_lpr`、`macro_china_cpi_yearly`、`macro_china_gdp_yearly`等 |
-| 美国及各国宏观 | 联储利率、CPI、非农，含今值/预测值/前值 | `macro_bank_usa_interest_rate`、`macro_usa_cpi_monthly`等 |
-| 财经快讯 | 消息面原始素材 | 东方财富全球财经快讯 / 财联社电报类接口 |
-| 持仓现价 | 黄金/证券股/场内基金 | `fund_etf_spot_em`、`stock_zh_a_spot_em` |
+**重要约束（实测发现）**：akshare 里指向东方财富（`push2.eastmoney.com`）的接口在当前开发网络环境下会被连接重置，无法直连；新浪、同花顺、沪深交易所官网、legulegu.com、财新网、百度股市通等源正常直连。因此本设计**只选用非东方财富数据源**，避开该连通性问题。北向资金（沪深港通资金流向）在akshare中基本只有东方财富源，暂从MVP的"多空比例"判断依据中剔除，只用两融+涨跌家数；日经/KOSPI等次要点缀数据标记为best-effort（抓不到就跳过，不影响主体报告）。此约束在选择最终部署环境时也需要考虑：需要部署在能直连东方财富的网络（如国内服务器）才能启用北向资金等数据，否则应继续使用本设计选用的非东方财富源。
 
-宏观数据的"今值 vs 预测值"用于数值化判断是否超预期（见第8节），若个别接口缺少预测值字段，退化为LLM读新闻文本判断。
+| 模块 | 数据 | 接口 | 数据源 | 已验证字段 |
+|---|---|---|---|---|
+| 交易日历 | A股是否交易日 | `tool_trade_date_hist_sina` | 新浪 | `trade_date`（`datetime.date`元素） |
+| 大盘指数 | 指数行情 | `stock_zh_index_spot_sina` | 新浪 | 代码/名称/最新价/涨跌额/涨跌幅/昨收/今开/最高... |
+| 涨跌家数 | 赚钱效应 | `stock_market_activity_legu` | legulegu.com | 长表格式：item/value，含"上涨/下跌/涨停/跌停/统计日期" |
+| 多空比例 | 两融（沪/深） | `stock_margin_sse`、`stock_margin_szse` | 沪深交易所官网 | 信用交易日期/融资余额/融资买入额/融券余量/融券余量金额/融券卖出量/融资融券余额 |
+| 隔夜美股 | 美股三大指数日线 | `index_us_stock_sina`（symbol如`.INX`） | 新浪 | date/open/high/low/close/volume/amount |
+| 日经/KOSPI（best-effort） | 全球指数日线 | `index_global_hist_sina` | 新浪 | symbol映射需在实现时用`index_global_name_table()`核实（如日经`NKY`直接传参会KeyError，需调试正确用法），失败则跳过 |
+| 全市场资金流排行 | 概念板块净流入/流出 | `stock_fund_flow_concept`（symbol="即时"） | 同花顺 | 序号/行业/行业指数/行业-涨跌幅/流入资金/流出资金/净额/公司家数/领涨股/领涨股-涨跌幅/当前价 |
+| 关注ETF行情 | 持仓相关ETF涨跌幅/成交额 | `fund_etf_category_sina`（symbol="ETF基金"） | 新浪 | 代码/名称/最新价/涨跌额/涨跌幅/买入/卖出/昨收/今开/最高/最低/成交量/成交额 |
+| 全球宏观经济日历 | 中美等经济数据的公布/预期/前值/重要性 | `news_economic_baidu`（date=当天） | 百度股市通 | 日期/时间/地区/事件/公布/预期/前值/重要性——一个接口覆盖所有关注地区，按"地区"字段筛选中国/美国，按"公布"是否非空判断当日是否发布 |
+| 财经新闻 | 消息面原始素材 | `stock_news_main_cx` | 财新网 | tag/summary/url |
+| 持仓现价 | 场内ETF现价 | `fund_etf_category_sina` | 新浪 | 同上，与"关注ETF行情"复用同一接口 |
+
+宏观数据的"公布 vs 预期"字段用于数值化判断是否超预期（见第8节）；`news_economic_baidu`若对个别指标未提供预期值，退化为LLM读新闻文本判断。
 
 ## 6. 持仓配置 `holdings.yaml`
 
@@ -88,7 +89,7 @@ categories:
   fund:                     # 四成，长期定投
     total_weight: 0.40
     positions:
-      - {name: 科技板块基金, code: "XXXXXX", weight_within_category: 0.5}
+      - {name: 科技板块基金, code: null, weight_within_category: 0.5}  # 场外基金，无场内实时报价，仅展示不做行情/打分
       - {name: 纳指,   code: "513100", weight_within_category: 0.15}
       - {name: 标普,   code: "513500", weight_within_category: 0.10}
       - {name: 恒生科技(定投), code: "513180", weight_within_category: 0.10}
@@ -112,7 +113,9 @@ categories:
       - {name: 现金/子弹, weight_within_category: 0.42}
 ```
 
-`alerts.condition` 为结构化的"字段+运算符+阈值"，由代码解析比较，不做任意表达式求值。
+`alerts.condition` 为结构化的"字段+运算符+阈值"，由代码解析比较，不做任意表达式求值。`code`为`null`的持仓（如场外定投基金）不参与现价抓取和打分，仅在报告里按名称展示分类占比。
+
+**项目脚手架**：本项目用 `uv` 管理虚拟环境和依赖（`pyproject.toml`），已初始化并安装 `akshare`/`pytest`/`pyyaml`。
 
 ## 7. 个股打分与定投策略分层
 
@@ -131,7 +134,7 @@ categories:
 | 档位 | 定义 | 判定方式 |
 |---|---|---|
 | 第一档 | 黑天鹅、重大科技突破、泡沫破裂 | LLM读新闻文本判断（预期数量极少，多数报告应为空，属正常） |
-| 第二档 | 市场可快速消化的重大利空/利好；大幅超预期的宏观数据 | 宏观数据用"今值 vs 预测值"数值化规则判断；非宏观事件由LLM读新闻判断 |
+| 第二档 | 市场可快速消化的重大利空/利好；大幅超预期的宏观数据 | 宏观数据用经济日历"公布 vs 预期"数值化规则判断；非宏观事件由LLM读新闻判断 |
 | 第三档 | 高权重/高热度企业财报、订单；与预期差距不大的常规宏观数据 | LLM判断，邮件中限制展示条数 |
 | 第四档 | 对市场冲击不大的消息，或用户不关注板块的消息 | LLM判断，邮件中默认不展开，仅一句话汇总条数 |
 
@@ -172,8 +175,7 @@ System prompt角色设定为"严谨克制的证券分析助手，只做参考性
 
 - 单个数据源抓取失败 → 该板块标注"数据缺失"，不阻断其他板块和邮件发送
 - LLM调用失败 → 跳过所有解读/打分/分级内容，仅发送原始数据，邮件顶部提示"AI解读生成失败"
-- 状态缓存文件（宏观/定投策略）读取失败 → 视为"无新内容"，不阻断流程
-- 状态缓存文件首次不存在（首次运行）→ 静默写入当前最新日期作为基线，本次不判定为"新发布"，避免第一次运行时把所有历史宏观数据当成"今日新发布"刷屏
+- `state/dca_strategy_last_run.json` 读取失败或首次不存在 → 视为"需要重新生成"，不阻断流程
 - 所有异常记录本地日志，便于事后排查
 
 ## 13. 测试计划
