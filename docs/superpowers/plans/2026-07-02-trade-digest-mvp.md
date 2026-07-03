@@ -1629,7 +1629,7 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
         watchlist_quotes=[],
         macro_updates=[],
         triggered_alerts=[],
-        tactical_positions=[],
+        tactical_positions=[{"name": "黄金", "price": 4360, "cost_price": 4350}],
         news_items=[],
         priority_alerts=[],
         llm_result=None,
@@ -1637,6 +1637,8 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
 
     assert "AI解读生成失败" in html
     assert "晚间" in html
+    assert "黄金" in html
+    assert "4360" in html
 
 
 def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
@@ -1735,6 +1737,18 @@ def _render_tactical_scores(llm_result: dict | None) -> str:
     return f"<h3>短线/黄金打分</h3><ul>{items}</ul>"
 
 
+def _render_tactical_positions(tactical_positions: list[dict]) -> str:
+    if not tactical_positions:
+        return ""
+    items = "".join(
+        f"<li>{p['name']}: {p['price']}"
+        + (f"（成本 {p['cost_price']}）" if p.get("cost_price") is not None else "")
+        + "</li>"
+        for p in tactical_positions
+    )
+    return f"<h3>短线/黄金持仓现价</h3><ul>{items}</ul>"
+
+
 def _render_news(news_items: list[dict]) -> str:
     if not news_items:
         return ""
@@ -1801,6 +1815,7 @@ def render_email(
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")
 
     parts.append(_render_alerts(triggered_alerts))
+    parts.append(_render_tactical_positions(tactical_positions))
     parts.append(_render_tactical_scores(llm_result))
 
     dca_strategy = (llm_result or {}).get("dca_strategy")
@@ -2155,3 +2170,4 @@ git commit -m "Fix live-data issues found during manual end-to-end verification"
 - **Self-review fix applied (pre-flight scan)**: the initial draft had `main.py` call `fetch_etf_quotes(watchlist_codes)` and discard the result ("warms up watchlist quotes for future dashboard use") — spec §5/§10 require 关注ETF清单 quotes to actually appear in the report, and a discarded return value with no consumer is dead code a task reviewer would flag as YAGNI-violating speculative code. Fixed by threading `watchlist_quotes` through `build_payload` (Task 12) and `render_email`'s new `_render_watchlist` section (Task 13), consumed by `main.py` (Task 14).
 - **Fix applied during execution (Task 5 review finding)**: every data-fetch function's `try` block wrapped only the raw akshare call, not the subsequent DataFrame parsing — a malformed/unexpected response shape (missing column, empty frame) would raise uncaught, contradicting the Global Constraint that callers never need to wrap fetch calls in `try/except`. This was a plan-mandated defect (the example code itself had this shape) present in Tasks 5, 6, 9, and 10. Fixed in the plan text for all four tasks — the `try` block now wraps the entire function body — and the human confirmed fixing immediately rather than deferring past MVP.
 - **Fix applied during execution (Task 6 review finding)**: `fetch_sector_flow_ranking`'s `df.head(top_n)`/`df.tail(top_n)` could overlap when `top_n * 2 > len(df)`, letting one sector appear in both `top_inflow` and `top_outflow` — a plan-mandated defect (present in the example code) confirmed to actually manifest with the task's own 3-row test fixture and `top_n=2`. Fixed in the plan text by excluding the `top` rows before taking `tail(top_n)` for `bottom`, and added a test (`test_fetch_sector_flow_ranking_top_and_bottom_never_overlap`) asserting the two result sets are disjoint. The human confirmed fixing immediately.
+- **Fix applied during execution (Task 13 review finding)**: `render_email`'s `tactical_positions` parameter (raw price/cost_price for gold and short-term securities holdings) was accepted but never rendered — only the LLM's `tactical_scores` interpretation showed up, meaning the raw position data disappeared from the email entirely whenever the LLM call failed (`llm_result=None`), leaving only alert-trigger lines (a different, narrower signal). Fixed by adding `_render_tactical_positions` (renders name/price/cost_price for each tactical position, independent of `llm_result`) and calling it in `render_email` alongside `_render_tactical_scores`. Also strengthened `test_render_email_shows_fallback_banner_when_llm_result_is_none` to pass a non-empty `tactical_positions` list and assert it renders — this simultaneously closes the reviewer's noted test-coverage gap ("llm=None with non-empty raw data" was previously untested).
