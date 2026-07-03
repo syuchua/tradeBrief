@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from trade_digest.data.macro import fetch_macro_calendar
+from trade_digest.data.macro import fetch_macro_calendar, condense_macro_updates
 
 
 def _fake_calendar_df():
@@ -57,3 +57,37 @@ def test_fetch_macro_calendar_treats_nan_forecast_as_none():
 
     assert result[0]["forecast"] is None
     assert result[0]["surprise_pct"] is None
+
+
+def test_condense_macro_updates_keeps_fed_focus_events_as_highlights():
+    updates = [
+        {"region": "美国", "event": "美联储利率决议", "actual": 4.5, "forecast": 4.5, "previous": 4.75, "importance": 2, "surprise_pct": 0.0},
+        {"region": "中国", "event": "中国CPI年率", "actual": 0.3, "forecast": 0.1, "previous": -0.1, "importance": 2, "surprise_pct": 200.0},
+    ]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == updates
+    assert result["condensed_counts"] == {}
+
+
+def test_condense_macro_updates_groups_oil_gas_and_precious_metals_by_keyword():
+    updates = [
+        {"region": "美国", "event": "美国截至7月3日当周石油钻井总数(口)", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 2, "surprise_pct": None},
+        {"region": "美国", "event": "美国7月1日NYMEX铂金库存变动-每日(百盎司)", "actual": 0.0, "forecast": None, "previous": 0.0, "importance": 1, "surprise_pct": None},
+        {"region": "美国", "event": "美国7月2日iShares黄金持仓变动-每日(吨)", "actual": -1.3, "forecast": None, "previous": -0.35, "importance": 1, "surprise_pct": None},
+    ]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == []
+    assert result["condensed_counts"] == {"油气数据": 1, "贵金属持仓": 2}
+
+
+def test_condense_macro_updates_falls_back_to_other_category():
+    updates = [{"region": "中国", "event": "中国某冷门统计指标", "actual": 1.0, "forecast": None, "previous": 0.9, "importance": 1, "surprise_pct": None}]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == []
+    assert result["condensed_counts"] == {"其他": 1}

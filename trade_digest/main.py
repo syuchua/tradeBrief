@@ -10,7 +10,7 @@ from trade_digest.data.calendar import is_trading_day
 from trade_digest.data.market_overview import fetch_market_overview
 from trade_digest.data.sector_flow import fetch_sector_flow_ranking, fetch_etf_quotes
 from trade_digest.data.holdings_quotes import enrich_holdings_with_quotes
-from trade_digest.data.macro import fetch_macro_calendar
+from trade_digest.data.macro import fetch_macro_calendar, condense_macro_updates
 from trade_digest.data.news import fetch_recent_news
 from trade_digest.state import is_dca_strategy_due, save_dca_strategy_run_date
 from trade_digest.analysis.holdings_alert import evaluate_alerts
@@ -49,19 +49,23 @@ def run(session: str, today: date) -> None:
 
     tactical_positions = [p for p in holdings_flat if p["category"] in TACTICAL_CATEGORIES]
 
-    macro_updates = fetch_macro_calendar(settings["macro"]["regions"], today)
+    macro_updates_raw = fetch_macro_calendar(settings["macro"]["regions"], today)
+    macro_condensed = condense_macro_updates(macro_updates_raw)
+    macro_highlights = macro_condensed["highlights"]
+    macro_condensed_counts = macro_condensed["condensed_counts"]
+
     news_items = fetch_recent_news(settings["news"]["fetch_limit"])
 
     dca_due = is_dca_strategy_due(settings["dca_strategy"]["refresh_days"], today, STATE_FILE)
 
-    payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_updates, news_items, tactical_positions, dca_due)
+    payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_highlights, news_items, tactical_positions, dca_due)
     llm_client = get_llm_client()
     llm_result = synthesize_report(llm_client, payload)
 
     if dca_due and llm_result and llm_result.get("dca_strategy"):
         save_dca_strategy_run_date(today, STATE_FILE)
 
-    macro_priority_alerts = build_macro_priority_alerts(macro_updates, settings["macro"]["surprise_threshold_pct"])
+    macro_priority_alerts = build_macro_priority_alerts(macro_highlights, settings["macro"]["surprise_threshold_pct"])
     news_priority_alerts = (llm_result or {}).get("priority_alerts") or []
     priority_alerts = macro_priority_alerts + news_priority_alerts
 
@@ -71,7 +75,8 @@ def run(session: str, today: date) -> None:
         market_overview=market_overview,
         sector_flow=sector_flow,
         watchlist_quotes=watchlist_quotes,
-        macro_updates=macro_updates,
+        macro_updates=macro_highlights,
+        macro_condensed_counts=macro_condensed_counts,
         triggered_alerts=triggered_alerts,
         tactical_positions=tactical_positions,
         news_items=news_items,

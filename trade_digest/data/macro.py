@@ -45,3 +45,30 @@ def fetch_macro_calendar(regions: list[str], today: date) -> list[dict]:
     except Exception:
         logger.exception("Failed to fetch macro economic calendar")
         return []
+
+
+_FOCUS_KEYWORDS = [
+    "利率", "降息", "加息", "CPI", "PPI", "PMI", "非农", "失业率", "GDP",
+    "零售销售", "贸易帐", "社融", "M2", "LPR", "议息", "联储", "美联储", "央行", "PCE",
+]
+
+_CONDENSE_GROUPS = {
+    "油气数据": ["原油", "石油", "天然气", "钻井"],
+    "贵金属持仓": ["黄金", "白银", "铂金", "钯金", "COMEX", "NYMEX", "iShares", "SPDR"],
+}
+
+
+def condense_macro_updates(macro_updates: list[dict]) -> dict:
+    highlights = []
+    condensed_counts: dict[str, int] = {}
+    for update in macro_updates:
+        event = update["event"]
+        if any(keyword in event for keyword in _FOCUS_KEYWORDS):
+            highlights.append(update)
+            continue
+        group = next(
+            (name for name, keywords in _CONDENSE_GROUPS.items() if any(keyword in event for keyword in keywords)),
+            "其他",
+        )
+        condensed_counts[group] = condensed_counts.get(group, 0) + 1
+    return {"highlights": highlights, "condensed_counts": condensed_counts}

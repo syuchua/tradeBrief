@@ -91,6 +91,7 @@ def render_email(
     sector_flow: dict | None,
     watchlist_quotes: list[dict],
     macro_updates: list[dict],
+    macro_condensed_counts: dict[str, int],
     triggered_alerts: list[dict],
     tactical_positions: list[dict],
     news_items: list[dict],
@@ -116,14 +117,18 @@ def render_email(
     if llm_result and llm_result.get("sector_highlights"):
         parts.append(f"<p>{llm_result['sector_highlights']}</p>")
 
-    if macro_updates:
+    if macro_updates or macro_condensed_counts:
         parts.append("<h2>宏观数据</h2>")
-        items = "".join(
-            f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
-            f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
-            for m in macro_updates
-        )
-        parts.append(f"<ul>{items}</ul>")
+        if macro_updates:
+            items = "".join(
+                f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
+                f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
+                for m in macro_updates
+            )
+            parts.append(f"<ul>{items}</ul>")
+        if macro_condensed_counts:
+            summary = "；".join(f"{name}{count}项更新" for name, count in macro_condensed_counts.items())
+            parts.append(f"<p>另有：{summary}（常规数据更新，未展开）</p>")
         if llm_result and llm_result.get("macro_commentary"):
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")
 

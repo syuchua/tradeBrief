@@ -12,6 +12,7 @@ def test_render_email_includes_core_sections_with_llm_result():
         sector_flow={"top_inflow": [{"name": "半导体", "change_pct": 3.5, "net_inflow": 50000.0}], "top_outflow": []},
         watchlist_quotes=[{"code": "513100", "name": "纳指ETF", "price": 1.5, "change_pct": 1.1}],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[{"name": "黄金", "action": "减仓至10%以下", "condition": "price >= 4380"}],
         tactical_positions=[{"name": "黄金", "price": 4380}],
         news_items=[{"tag": "市场", "summary": "消息一", "url": "https://a"}],
@@ -37,6 +38,7 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[{"name": "黄金", "price": 4360, "cost_price": 4350}],
         news_items=[],
@@ -58,6 +60,7 @@ def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[],
         news_items=[],
@@ -86,6 +89,7 @@ def test_render_email_never_leaks_none_for_missing_price_or_forecast():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[{"region": "美国", "event": "美国某钻井数", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 1, "surprise_pct": None}],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[{"name": "现金/子弹", "price": None}],
         news_items=[],
@@ -96,6 +100,26 @@ def test_render_email_never_leaks_none_for_missing_price_or_forecast():
     assert "None" not in html
     assert "无实时报价" in html
     assert "无数据" in html
+
+
+def test_render_email_shows_macro_condensed_counts_as_one_liner():
+    html = render_email(
+        session="evening",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={"油气数据": 4, "贵金属持仓": 12},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result=None,
+    )
+
+    assert "油气数据4项更新" in html
+    assert "贵金属持仓12项更新" in html
 
 
 def test_send_email_calls_smtp_with_expected_args():

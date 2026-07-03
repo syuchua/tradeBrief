@@ -30,6 +30,7 @@ def _patch_all(mock_is_trading_day=True):
             {"name": "纳指", "category": "fund", "code": "513100", "price": 1.5},
         ]),
         "trade_digest.main.fetch_macro_calendar": patch("trade_digest.main.fetch_macro_calendar", return_value=[]),
+        "trade_digest.main.condense_macro_updates": patch("trade_digest.main.condense_macro_updates", return_value={"highlights": [], "condensed_counts": {}}),
         "trade_digest.main.fetch_recent_news": patch("trade_digest.main.fetch_recent_news", return_value=[]),
         "trade_digest.main.is_dca_strategy_due": patch("trade_digest.main.is_dca_strategy_due", return_value=False),
         "trade_digest.main.save_dca_strategy_run_date": patch("trade_digest.main.save_dca_strategy_run_date"),
