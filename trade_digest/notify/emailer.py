@@ -42,6 +42,18 @@ def _render_tactical_scores(llm_result: dict | None) -> str:
     return f"<h3>短线/黄金打分</h3><ul>{items}</ul>"
 
 
+def _render_tactical_positions(tactical_positions: list[dict]) -> str:
+    if not tactical_positions:
+        return ""
+    items = "".join(
+        f"<li>{p['name']}: {p['price']}"
+        + (f"（成本 {p['cost_price']}）" if p.get("cost_price") is not None else "")
+        + "</li>"
+        for p in tactical_positions
+    )
+    return f"<h3>短线/黄金持仓现价</h3><ul>{items}</ul>"
+
+
 def _render_news(news_items: list[dict]) -> str:
     if not news_items:
         return ""
@@ -108,6 +120,7 @@ def render_email(
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")
 
     parts.append(_render_alerts(triggered_alerts))
+    parts.append(_render_tactical_positions(tactical_positions))
     parts.append(_render_tactical_scores(llm_result))
 
     dca_strategy = (llm_result or {}).get("dca_strategy")

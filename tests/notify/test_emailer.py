@@ -38,7 +38,7 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
         watchlist_quotes=[],
         macro_updates=[],
         triggered_alerts=[],
-        tactical_positions=[],
+        tactical_positions=[{"name": "黄金", "price": 4360, "cost_price": 4350}],
         news_items=[],
         priority_alerts=[],
         llm_result=None,
@@ -46,6 +46,8 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
 
     assert "AI解读生成失败" in html
     assert "晚间" in html
+    assert "黄金" in html
+    assert "4360" in html
 
 
 def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
