@@ -685,6 +685,16 @@ def test_fetch_sector_flow_ranking_sorts_by_net_inflow():
     assert result["top_outflow"][0] == {"name": "煤炭", "change_pct": -2.8, "net_inflow": -30000.0}
 
 
+def test_fetch_sector_flow_ranking_top_and_bottom_never_overlap():
+    # 3 rows, top_n=2: without exclusion, head(2) and tail(2) would both include row 1 ("白酒").
+    with patch("trade_digest.data.sector_flow.ak.stock_fund_flow_concept", return_value=_fake_concept_df()):
+        result = fetch_sector_flow_ranking(top_n=2)
+
+    top_names = {r["name"] for r in result["top_inflow"]}
+    bottom_names = {r["name"] for r in result["top_outflow"]}
+    assert top_names.isdisjoint(bottom_names)
+
+
 def test_fetch_sector_flow_ranking_returns_none_on_error():
     with patch("trade_digest.data.sector_flow.ak.stock_fund_flow_concept", side_effect=RuntimeError("boom")):
         assert fetch_sector_flow_ranking(top_n=5) is None
@@ -738,7 +748,8 @@ def fetch_sector_flow_ranking(top_n: int) -> dict | None:
         df = ak.stock_fund_flow_concept(symbol="即时")
         df = df.sort_values("净额", ascending=False)
         top = df.head(top_n)
-        bottom = df.tail(top_n).sort_values("净额")
+        remaining = df.iloc[top_n:]  # exclude rows already in `top` so inflow/outflow never overlap
+        bottom = remaining.tail(top_n).sort_values("净额")
 
         def to_records(sub_df):
             return [
@@ -778,7 +789,7 @@ def fetch_etf_quotes(codes: list[str]) -> dict:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/data/test_sector_flow.py -v`
-Expected: PASS (5 tests)
+Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -2143,3 +2154,4 @@ git commit -m "Fix live-data issues found during manual end-to-end verification"
 - **Self-review fix applied**: `macro.py`'s `_to_float` treated NaN forecast/previous values as valid floats (since `float(nan)` doesn't raise), which would have let `surprise_pct` silently become `nan` instead of `None` when akshare omits a forecast. Fixed with an explicit NaN check and covered by `test_fetch_macro_calendar_treats_nan_forecast_as_none` (Task 9).
 - **Self-review fix applied (pre-flight scan)**: the initial draft had `main.py` call `fetch_etf_quotes(watchlist_codes)` and discard the result ("warms up watchlist quotes for future dashboard use") — spec §5/§10 require 关注ETF清单 quotes to actually appear in the report, and a discarded return value with no consumer is dead code a task reviewer would flag as YAGNI-violating speculative code. Fixed by threading `watchlist_quotes` through `build_payload` (Task 12) and `render_email`'s new `_render_watchlist` section (Task 13), consumed by `main.py` (Task 14).
 - **Fix applied during execution (Task 5 review finding)**: every data-fetch function's `try` block wrapped only the raw akshare call, not the subsequent DataFrame parsing — a malformed/unexpected response shape (missing column, empty frame) would raise uncaught, contradicting the Global Constraint that callers never need to wrap fetch calls in `try/except`. This was a plan-mandated defect (the example code itself had this shape) present in Tasks 5, 6, 9, and 10. Fixed in the plan text for all four tasks — the `try` block now wraps the entire function body — and the human confirmed fixing immediately rather than deferring past MVP.
+- **Fix applied during execution (Task 6 review finding)**: `fetch_sector_flow_ranking`'s `df.head(top_n)`/`df.tail(top_n)` could overlap when `top_n * 2 > len(df)`, letting one sector appear in both `top_inflow` and `top_outflow` — a plan-mandated defect (present in the example code) confirmed to actually manifest with the task's own 3-row test fixture and `top_n=2`. Fixed in the plan text by excluding the `top` rows before taking `tail(top_n)` for `bottom`, and added a test (`test_fetch_sector_flow_ranking_top_and_bottom_never_overlap`) asserting the two result sets are disjoint. The human confirmed fixing immediately.
