@@ -72,6 +72,18 @@ def fetch_asia_snapshot() -> dict | None:
         return None
 
 
+def fetch_gold_spot_price() -> float | None:
+    """International spot gold (伦敦金/XAU) in USD/oz — used for holdings.yaml's
+    gold cost_price/alert comparisons, which are denominated in USD/oz, not the
+    domestic gold ETF's per-share CNY price (a different, unrelated number)."""
+    try:
+        df = ak.futures_foreign_commodity_realtime(symbol="XAU")
+        return float(df.iloc[0]["最新价"])
+    except Exception:
+        logger.exception("Failed to fetch international gold spot price")
+        return None
+
+
 def fetch_market_overview(session: str) -> dict:
     return {
         "indices": fetch_index_snapshot(),

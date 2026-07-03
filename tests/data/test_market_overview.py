@@ -10,6 +10,7 @@ from trade_digest.data.market_overview import (
     fetch_margin_ratio,
     fetch_us_market_snapshot,
     fetch_asia_snapshot,
+    fetch_gold_spot_price,
     fetch_market_overview,
 )
 
@@ -78,6 +79,17 @@ def test_fetch_us_market_snapshot_reads_latest_close():
 def test_fetch_asia_snapshot_returns_none_on_error():
     with patch("trade_digest.data.market_overview.ak.index_global_hist_sina", side_effect=RuntimeError("boom")):
         assert fetch_asia_snapshot() is None
+
+
+def test_fetch_gold_spot_price_reads_latest_price():
+    fake_df = pd.DataFrame({"名称": ["伦敦金"], "最新价": [4167.91]})
+    with patch("trade_digest.data.market_overview.ak.futures_foreign_commodity_realtime", return_value=fake_df):
+        assert fetch_gold_spot_price() == 4167.91
+
+
+def test_fetch_gold_spot_price_returns_none_on_error():
+    with patch("trade_digest.data.market_overview.ak.futures_foreign_commodity_realtime", side_effect=RuntimeError("boom")):
+        assert fetch_gold_spot_price() is None
 
 
 def test_fetch_market_overview_includes_asia_only_for_morning():
