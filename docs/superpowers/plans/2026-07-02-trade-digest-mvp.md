@@ -1665,6 +1665,30 @@ def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
     assert "另有2条常规消息" in html
 
 
+def test_render_email_never_leaks_none_for_missing_price_or_forecast():
+    # Positions with no live price (e.g. a cash sub-position) and macro releases
+    # with no consensus forecast are both legitimate real-world cases (confirmed
+    # by manual end-to-end verification) — the literal string "None" must never
+    # appear in the rendered HTML.
+    html = render_email(
+        session="evening",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[{"region": "美国", "event": "美国某钻井数", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 1, "surprise_pct": None}],
+        triggered_alerts=[],
+        tactical_positions=[{"name": "现金/子弹", "price": None}],
+        news_items=[],
+        priority_alerts=[],
+        llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+    )
+
+    assert "None" not in html
+    assert "无实时报价" in html
+    assert "无数据" in html
+
+
 def test_send_email_calls_smtp_with_expected_args():
     fake_server = MagicMock()
     with patch("trade_digest.notify.emailer.smtplib.SMTP_SSL") as mock_smtp_ssl:
@@ -1698,6 +1722,10 @@ import smtplib
 from email.mime.text import MIMEText
 
 SESSION_LABELS = {"morning": "早盘", "evening": "晚间"}
+
+
+def _fmt_nullable(value) -> str:
+    return "无数据" if value is None else str(value)
 
 
 def _render_indices(indices: list[dict] | None) -> str:
@@ -1741,7 +1769,7 @@ def _render_tactical_positions(tactical_positions: list[dict]) -> str:
     if not tactical_positions:
         return ""
     items = "".join(
-        f"<li>{p['name']}: {p['price']}"
+        f"<li>{p['name']}: {p['price'] if p['price'] is not None else '无实时报价'}"
         + (f"（成本 {p['cost_price']}）" if p.get("cost_price") is not None else "")
         + "</li>"
         for p in tactical_positions
@@ -1809,7 +1837,11 @@ def render_email(
 
     if macro_updates:
         parts.append("<h2>宏观数据</h2>")
-        items = "".join(f"<li>[{m['region']}] {m['event']}: 公布{m['actual']} 预期{m['forecast']} 前值{m['previous']}</li>" for m in macro_updates)
+        items = "".join(
+            f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
+            f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
+            for m in macro_updates
+        )
         parts.append(f"<ul>{items}</ul>")
         if llm_result and llm_result.get("macro_commentary"):
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")
@@ -1852,7 +1884,7 @@ def send_email(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/notify/test_emailer.py -v`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -2171,3 +2203,4 @@ git commit -m "Fix live-data issues found during manual end-to-end verification"
 - **Fix applied during execution (Task 5 review finding)**: every data-fetch function's `try` block wrapped only the raw akshare call, not the subsequent DataFrame parsing — a malformed/unexpected response shape (missing column, empty frame) would raise uncaught, contradicting the Global Constraint that callers never need to wrap fetch calls in `try/except`. This was a plan-mandated defect (the example code itself had this shape) present in Tasks 5, 6, 9, and 10. Fixed in the plan text for all four tasks — the `try` block now wraps the entire function body — and the human confirmed fixing immediately rather than deferring past MVP.
 - **Fix applied during execution (Task 6 review finding)**: `fetch_sector_flow_ranking`'s `df.head(top_n)`/`df.tail(top_n)` could overlap when `top_n * 2 > len(df)`, letting one sector appear in both `top_inflow` and `top_outflow` — a plan-mandated defect (present in the example code) confirmed to actually manifest with the task's own 3-row test fixture and `top_n=2`. Fixed in the plan text by excluding the `top` rows before taking `tail(top_n)` for `bottom`, and added a test (`test_fetch_sector_flow_ranking_top_and_bottom_never_overlap`) asserting the two result sets are disjoint. The human confirmed fixing immediately.
 - **Fix applied during execution (Task 13 review finding)**: `render_email`'s `tactical_positions` parameter (raw price/cost_price for gold and short-term securities holdings) was accepted but never rendered — only the LLM's `tactical_scores` interpretation showed up, meaning the raw position data disappeared from the email entirely whenever the LLM call failed (`llm_result=None`), leaving only alert-trigger lines (a different, narrower signal). Fixed by adding `_render_tactical_positions` (renders name/price/cost_price for each tactical position, independent of `llm_result`) and calling it in `render_email` alongside `_render_tactical_scores`. Also strengthened `test_render_email_shows_fallback_banner_when_llm_result_is_none` to pass a non-empty `tactical_positions` list and assert it renders — this simultaneously closes the reviewer's noted test-coverage gap ("llm=None with non-empty raw data" was previously untested).
+- **Fix applied during execution (Task 15 manual verification finding)**: a real end-to-end run surfaced two Python `None` values leaking into the visible email text — `现金/子弹: None` (a holdings position with no live price, since it has no exchange code) and `预期None` repeated across many macro releases (obscure indicators like drilling-rig counts genuinely have no consensus forecast in the data source). Neither was caught by unit tests because no test exercised a `None` price or `None` forecast through the actual rendering path. Fixed by adding `_fmt_nullable(value)` (renders `None` as `"无数据"`) used for the macro line's `actual`/`forecast`/`previous` fields, and by having `_render_tactical_positions` render `"无实时报价"` instead of the raw price when `price is None`. Added `test_render_email_never_leaks_none_for_missing_price_or_forecast` asserting the literal string `"None"` never appears in rendered output. This is exactly the class of bug spec §13's manual-verification step exists to catch.
