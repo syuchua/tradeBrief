@@ -22,6 +22,16 @@ def test_fetch_sector_flow_ranking_sorts_by_net_inflow():
     assert result["top_outflow"][0] == {"name": "煤炭", "change_pct": -2.8, "net_inflow": -30000.0}
 
 
+def test_fetch_sector_flow_ranking_top_and_bottom_never_overlap():
+    # 3 rows, top_n=2: without exclusion, head(2) and tail(2) would both include row 1 ("白酒").
+    with patch("trade_digest.data.sector_flow.ak.stock_fund_flow_concept", return_value=_fake_concept_df()):
+        result = fetch_sector_flow_ranking(top_n=2)
+
+    top_names = {r["name"] for r in result["top_inflow"]}
+    bottom_names = {r["name"] for r in result["top_outflow"]}
+    assert top_names.isdisjoint(bottom_names)
+
+
 def test_fetch_sector_flow_ranking_returns_none_on_error():
     with patch("trade_digest.data.sector_flow.ak.stock_fund_flow_concept", side_effect=RuntimeError("boom")):
         assert fetch_sector_flow_ranking(top_n=5) is None

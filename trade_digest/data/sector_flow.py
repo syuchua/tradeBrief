@@ -11,7 +11,8 @@ def fetch_sector_flow_ranking(top_n: int) -> dict | None:
         df = ak.stock_fund_flow_concept(symbol="即时")
         df = df.sort_values("净额", ascending=False)
         top = df.head(top_n)
-        bottom = df.tail(top_n).sort_values("净额")
+        remaining = df.iloc[top_n:]  # exclude rows already in `top` so inflow/outflow never overlap
+        bottom = remaining.tail(top_n).sort_values("净额")
 
         def to_records(sub_df):
             return [
