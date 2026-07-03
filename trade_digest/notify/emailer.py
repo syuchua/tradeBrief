@@ -5,6 +5,10 @@ from email.mime.text import MIMEText
 SESSION_LABELS = {"morning": "早盘", "evening": "晚间"}
 
 
+def _fmt_nullable(value) -> str:
+    return "无数据" if value is None else str(value)
+
+
 def _render_indices(indices: list[dict] | None) -> str:
     if not indices:
         return "<p>（大盘指数数据缺失）</p>"
@@ -46,7 +50,7 @@ def _render_tactical_positions(tactical_positions: list[dict]) -> str:
     if not tactical_positions:
         return ""
     items = "".join(
-        f"<li>{p['name']}: {p['price']}"
+        f"<li>{p['name']}: {p['price'] if p['price'] is not None else '无实时报价'}"
         + (f"（成本 {p['cost_price']}）" if p.get("cost_price") is not None else "")
         + "</li>"
         for p in tactical_positions
@@ -114,7 +118,11 @@ def render_email(
 
     if macro_updates:
         parts.append("<h2>宏观数据</h2>")
-        items = "".join(f"<li>[{m['region']}] {m['event']}: 公布{m['actual']} 预期{m['forecast']} 前值{m['previous']}</li>" for m in macro_updates)
+        items = "".join(
+            f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
+            f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
+            for m in macro_updates
+        )
         parts.append(f"<ul>{items}</ul>")
         if llm_result and llm_result.get("macro_commentary"):
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")

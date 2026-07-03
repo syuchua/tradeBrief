@@ -74,6 +74,30 @@ def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
     assert "另有2条常规消息" in html
 
 
+def test_render_email_never_leaks_none_for_missing_price_or_forecast():
+    # Positions with no live price (e.g. a cash sub-position) and macro releases
+    # with no consensus forecast are both legitimate real-world cases (confirmed
+    # by manual end-to-end verification) — the literal string "None" must never
+    # appear in the rendered HTML.
+    html = render_email(
+        session="evening",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[{"region": "美国", "event": "美国某钻井数", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 1, "surprise_pct": None}],
+        triggered_alerts=[],
+        tactical_positions=[{"name": "现金/子弹", "price": None}],
+        news_items=[],
+        priority_alerts=[],
+        llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+    )
+
+    assert "None" not in html
+    assert "无实时报价" in html
+    assert "无数据" in html
+
+
 def test_send_email_calls_smtp_with_expected_args():
     fake_server = MagicMock()
     with patch("trade_digest.notify.emailer.smtplib.SMTP_SSL") as mock_smtp_ssl:
