@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Python 3.11, all commands run via `uv run ...` (never bare `python`/`pytest`).
-- Only use the non-eastmoney akshare interfaces verified in spec section 5 (`tool_trade_date_hist_sina`, `stock_zh_index_spot_sina`, `stock_market_activity_legu`, `stock_margin_sse`, `index_us_stock_sina`, `index_global_hist_sina`, `stock_fund_flow_concept`, `fund_etf_category_sina`, `news_economic_baidu`, `stock_news_main_cx`). Never call `*_em` (eastmoney) functions — they are unreachable from this network.
+- Only use the non-eastmoney akshare interfaces verified in spec section 5 (`tool_trade_date_hist_sina`, `stock_zh_index_spot_sina`, `stock_market_activity_legu`, `stock_margin_sse`, `index_us_stock_sina`, `index_global_hist_sina`, `stock_fund_flow_concept`, `fund_etf_category_sina`, `news_economic_baidu`, `stock_news_main_cx`, `futures_foreign_commodity_realtime`). Never call `*_em` (eastmoney) functions — they are unreachable from this network.
 - No real network calls in automated tests — every `akshare`/`requests`/`smtplib` call is mocked via `unittest.mock.patch`.
 - Every data-fetch function catches its own exceptions internally and returns `None` (or `[]` for list-returning functions) on failure — callers never need to wrap fetch calls in `try/except`. The `try` block must wrap the ENTIRE function body (the raw API call AND all subsequent parsing/field access), not just the API call itself — a malformed or unexpected response shape must degrade the same way a network failure does.
 - `holdings.yaml`/`settings.yaml` contain personal financial data and are gitignored; only `.example.yaml` templates are committed.
@@ -152,7 +152,7 @@ categories:
     total_weight: 0.20
     positions:
       - name: 黄金
-        code: "518880"
+        code: "518880"  # kept for reference/watchlist display only — price for this category comes from fetch_gold_spot_price() (international spot, USD/oz), not this ETF code
         cost_price: 4350
         alerts:
           - {condition: "price >= 4380", action: "反弹至4380，考虑减仓至10%以下"}
@@ -441,6 +441,7 @@ from trade_digest.data.market_overview import (
     fetch_margin_ratio,
     fetch_us_market_snapshot,
     fetch_asia_snapshot,
+    fetch_gold_spot_price,
     fetch_market_overview,
 )
 
@@ -509,6 +510,17 @@ def test_fetch_us_market_snapshot_reads_latest_close():
 def test_fetch_asia_snapshot_returns_none_on_error():
     with patch("trade_digest.data.market_overview.ak.index_global_hist_sina", side_effect=RuntimeError("boom")):
         assert fetch_asia_snapshot() is None
+
+
+def test_fetch_gold_spot_price_reads_latest_price():
+    fake_df = pd.DataFrame({"名称": ["伦敦金"], "最新价": [4167.91]})
+    with patch("trade_digest.data.market_overview.ak.futures_foreign_commodity_realtime", return_value=fake_df):
+        assert fetch_gold_spot_price() == 4167.91
+
+
+def test_fetch_gold_spot_price_returns_none_on_error():
+    with patch("trade_digest.data.market_overview.ak.futures_foreign_commodity_realtime", side_effect=RuntimeError("boom")):
+        assert fetch_gold_spot_price() is None
 
 
 def test_fetch_market_overview_includes_asia_only_for_morning():
@@ -607,6 +619,18 @@ def fetch_asia_snapshot() -> dict | None:
         return None
 
 
+def fetch_gold_spot_price() -> float | None:
+    """International spot gold (伦敦金/XAU) in USD/oz — used for holdings.yaml's
+    gold cost_price/alert comparisons, which are denominated in USD/oz, not the
+    domestic gold ETF's per-share CNY price (a different, unrelated number)."""
+    try:
+        df = ak.futures_foreign_commodity_realtime(symbol="XAU")
+        return float(df.iloc[0]["最新价"])
+    except Exception:
+        logger.exception("Failed to fetch international gold spot price")
+        return None
+
+
 def fetch_market_overview(session: str) -> dict:
     return {
         "indices": fetch_index_snapshot(),
@@ -620,7 +644,7 @@ def fetch_market_overview(session: str) -> dict:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/data/test_market_overview.py -v`
-Expected: PASS (9 tests)
+Expected: PASS (11 tests)
 
 - [ ] **Step 5: Manually confirm the `index_global_hist_sina` symbol against live data**
 
@@ -838,25 +862,29 @@ HOLDINGS = {
 
 
 def test_enrich_holdings_flattens_categories_and_attaches_price():
-    fake_quotes = {"513100": {"name": "纳指ETF", "price": 1.55, "change_pct": 0.4}, "518880": {"name": "黄金ETF", "price": 6.3, "change_pct": 0.1}}
-    with patch("trade_digest.data.holdings_quotes.fetch_etf_quotes", return_value=fake_quotes) as mock_fetch:
+    fake_quotes = {"513100": {"name": "纳指ETF", "price": 1.55, "change_pct": 0.4}}
+    with patch("trade_digest.data.holdings_quotes.fetch_etf_quotes", return_value=fake_quotes) as mock_fetch, \
+         patch("trade_digest.data.holdings_quotes.fetch_gold_spot_price", return_value=4360.5) as mock_gold:
         result = enrich_holdings_with_quotes(HOLDINGS)
 
-    mock_fetch.assert_called_once_with(["513100", "518880"])
+    mock_fetch.assert_called_once_with(["513100"])
+    mock_gold.assert_called_once()
     by_name = {p["name"]: p for p in result}
     assert by_name["纳指"]["category"] == "fund"
     assert by_name["纳指"]["price"] == 1.55
-    assert by_name["黄金"]["price"] == 6.3
+    assert by_name["黄金"]["price"] == 4360.5
     assert by_name["黄金"]["cost_price"] == 4350
     assert by_name["科技板块基金"]["price"] is None
 
 
 def test_enrich_holdings_handles_no_codes():
     holdings = {"categories": {"fund": {"total_weight": 1.0, "positions": [{"name": "现金", "code": None}]}}}
-    with patch("trade_digest.data.holdings_quotes.fetch_etf_quotes", return_value={}) as mock_fetch:
+    with patch("trade_digest.data.holdings_quotes.fetch_etf_quotes", return_value={}) as mock_fetch, \
+         patch("trade_digest.data.holdings_quotes.fetch_gold_spot_price") as mock_gold:
         result = enrich_holdings_with_quotes(holdings)
 
     mock_fetch.assert_called_once_with([])
+    mock_gold.assert_not_called()
     assert result[0]["price"] is None
 ```
 
@@ -870,6 +898,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'trade_digest.data.hol
 ```python
 # trade_digest/data/holdings_quotes.py
 from trade_digest.data.sector_flow import fetch_etf_quotes
+from trade_digest.data.market_overview import fetch_gold_spot_price
 
 
 def enrich_holdings_with_quotes(holdings: dict) -> list[dict]:
@@ -878,10 +907,14 @@ def enrich_holdings_with_quotes(holdings: dict) -> list[dict]:
         for position in cat_data["positions"]:
             flat.append({**position, "category": category})
 
-    codes = [p["code"] for p in flat if p.get("code")]
+    codes = [p["code"] for p in flat if p.get("code") and p["category"] != "gold"]
     quotes = fetch_etf_quotes(codes)
+    gold_price = fetch_gold_spot_price() if any(p["category"] == "gold" for p in flat) else None
 
     for position in flat:
+        if position["category"] == "gold":
+            position["price"] = gold_price
+            continue
         code = position.get("code")
         quote = quotes.get(code) if code else None
         position["price"] = quote["price"] if quote else None
@@ -1021,7 +1054,9 @@ git commit -m "Add structured condition parsing and holdings alert evaluation"
 
 **Interfaces:**
 - Consumes: `akshare.news_economic_baidu(date: str)`
-- Produces: `fetch_macro_calendar(regions: list[str], today: date) -> list[dict]` with keys `region`/`event`/`actual`/`forecast`/`previous`/`importance`/`surprise_pct` — consumed by `main.py` (Task 14).
+- Produces: `fetch_macro_calendar(regions: list[str], today: date) -> list[dict]` with keys `region`/`event`/`actual`/`forecast`/`previous`/`importance`/`surprise_pct`; `condense_macro_updates(macro_updates: list[dict]) -> dict` with keys `highlights` (core Fed/macro-indicator events, shown individually) and `condensed_counts` (`dict[str, int]`, e.g. `{"油气数据": 4, "贵金属持仓": 12}`, for routine commodity-inventory noise merged into one-line summaries) — both consumed by `main.py` (Task 14).
+
+**Design note (added after Task 15 manual verification):** a real run showed `fetch_macro_calendar` returning 20+ near-identical daily commodity inventory/positioning line items (NYMEX/COMEX/iShares/SPDR gold/silver/platinum holdings, weekly drilling-rig counts) that flooded the email and buried the handful of events that actually matter (Fed rate decisions, CPI, PMI, non-farm payrolls). `condense_macro_updates` is a pure, deterministic keyword classifier — not an LLM call — that separates "always show individually" events (matching a core-macro-indicator keyword list) from routine data (grouped by keyword into a count per category, defaulting to `"其他"` if no group matches). `main.py` passes only `highlights` onward to `build_payload`/`build_macro_priority_alerts`/`render_email`, and `condensed_counts` separately to `render_email` for a one-line summary.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1032,7 +1067,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from trade_digest.data.macro import fetch_macro_calendar
+from trade_digest.data.macro import fetch_macro_calendar, condense_macro_updates
 
 
 def _fake_calendar_df():
@@ -1085,6 +1120,40 @@ def test_fetch_macro_calendar_treats_nan_forecast_as_none():
 
     assert result[0]["forecast"] is None
     assert result[0]["surprise_pct"] is None
+
+
+def test_condense_macro_updates_keeps_fed_focus_events_as_highlights():
+    updates = [
+        {"region": "美国", "event": "美联储利率决议", "actual": 4.5, "forecast": 4.5, "previous": 4.75, "importance": 2, "surprise_pct": 0.0},
+        {"region": "中国", "event": "中国CPI年率", "actual": 0.3, "forecast": 0.1, "previous": -0.1, "importance": 2, "surprise_pct": 200.0},
+    ]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == updates
+    assert result["condensed_counts"] == {}
+
+
+def test_condense_macro_updates_groups_oil_gas_and_precious_metals_by_keyword():
+    updates = [
+        {"region": "美国", "event": "美国截至7月3日当周石油钻井总数(口)", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 2, "surprise_pct": None},
+        {"region": "美国", "event": "美国7月1日NYMEX铂金库存变动-每日(百盎司)", "actual": 0.0, "forecast": None, "previous": 0.0, "importance": 1, "surprise_pct": None},
+        {"region": "美国", "event": "美国7月2日iShares黄金持仓变动-每日(吨)", "actual": -1.3, "forecast": None, "previous": -0.35, "importance": 1, "surprise_pct": None},
+    ]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == []
+    assert result["condensed_counts"] == {"油气数据": 1, "贵金属持仓": 2}
+
+
+def test_condense_macro_updates_falls_back_to_other_category():
+    updates = [{"region": "中国", "event": "中国某冷门统计指标", "actual": 1.0, "forecast": None, "previous": 0.9, "importance": 1, "surprise_pct": None}]
+
+    result = condense_macro_updates(updates)
+
+    assert result["highlights"] == []
+    assert result["condensed_counts"] == {"其他": 1}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1142,12 +1211,39 @@ def fetch_macro_calendar(regions: list[str], today: date) -> list[dict]:
     except Exception:
         logger.exception("Failed to fetch macro economic calendar")
         return []
+
+
+_FOCUS_KEYWORDS = [
+    "利率", "降息", "加息", "CPI", "PPI", "PMI", "非农", "失业率", "GDP",
+    "零售销售", "贸易帐", "社融", "M2", "LPR", "议息", "联储", "美联储", "央行", "PCE",
+]
+
+_CONDENSE_GROUPS = {
+    "油气数据": ["原油", "石油", "天然气", "钻井"],
+    "贵金属持仓": ["黄金", "白银", "铂金", "钯金", "COMEX", "NYMEX", "iShares", "SPDR"],
+}
+
+
+def condense_macro_updates(macro_updates: list[dict]) -> dict:
+    highlights = []
+    condensed_counts: dict[str, int] = {}
+    for update in macro_updates:
+        event = update["event"]
+        if any(keyword in event for keyword in _FOCUS_KEYWORDS):
+            highlights.append(update)
+            continue
+        group = next(
+            (name for name, keywords in _CONDENSE_GROUPS.items() if any(keyword in event for keyword in keywords)),
+            "其他",
+        )
+        condensed_counts[group] = condensed_counts.get(group, 0) + 1
+    return {"highlights": highlights, "condensed_counts": condensed_counts}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/data/test_macro.py -v`
-Expected: PASS (4 tests)
+Expected: PASS (7 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1584,7 +1680,7 @@ git commit -m "Add structured LLM payload builder and synthesis call with failur
 
 **Interfaces:**
 - Consumes: output shapes from Tasks 5/6/8/9/10/12 (all plain dicts/lists)
-- Produces: `render_email(session, report_date, market_overview, sector_flow, watchlist_quotes, macro_updates, triggered_alerts, tactical_positions, news_items, priority_alerts, llm_result) -> str` (HTML), `send_email(smtp_host, smtp_port, smtp_user, smtp_password, sender, recipients, subject, html_body) -> None` — both consumed by `main.py` (Task 14). `priority_alerts` is the pre-merged list (macro-driven tier-2 alerts from `build_macro_priority_alerts` + the LLM's news-driven `priority_alerts`) — `render_email` itself does no merging, just rendering. `watchlist_quotes` is the flat list from `fetch_etf_quotes` (Task 6), converted to `[{"code":..., "name":..., "price":..., "change_pct":...}, ...]` by `main.py`.
+- Produces: `render_email(session, report_date, market_overview, sector_flow, watchlist_quotes, macro_updates, macro_condensed_counts, triggered_alerts, tactical_positions, news_items, priority_alerts, llm_result) -> str` (HTML), `send_email(smtp_host, smtp_port, smtp_user, smtp_password, sender, recipients, subject, html_body) -> None` — both consumed by `main.py` (Task 14). `priority_alerts` is the pre-merged list (macro-driven tier-2 alerts from `build_macro_priority_alerts` + the LLM's news-driven `priority_alerts`) — `render_email` itself does no merging, just rendering. `watchlist_quotes` is the flat list from `fetch_etf_quotes` (Task 6), converted to `[{"code":..., "name":..., "price":..., "change_pct":...}, ...]` by `main.py`. `macro_updates` here is the `highlights` list and `macro_condensed_counts` is the `condensed_counts` dict, both from Task 9's `condense_macro_updates` (added after Task 15 manual verification surfaced macro-noise flooding).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1603,6 +1699,7 @@ def test_render_email_includes_core_sections_with_llm_result():
         sector_flow={"top_inflow": [{"name": "半导体", "change_pct": 3.5, "net_inflow": 50000.0}], "top_outflow": []},
         watchlist_quotes=[{"code": "513100", "name": "纳指ETF", "price": 1.5, "change_pct": 1.1}],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[{"name": "黄金", "action": "减仓至10%以下", "condition": "price >= 4380"}],
         tactical_positions=[{"name": "黄金", "price": 4380}],
         news_items=[{"tag": "市场", "summary": "消息一", "url": "https://a"}],
@@ -1628,6 +1725,7 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[{"name": "黄金", "price": 4360, "cost_price": 4350}],
         news_items=[],
@@ -1649,6 +1747,7 @@ def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[],
         news_items=[],
@@ -1677,6 +1776,7 @@ def test_render_email_never_leaks_none_for_missing_price_or_forecast():
         sector_flow=None,
         watchlist_quotes=[],
         macro_updates=[{"region": "美国", "event": "美国某钻井数", "actual": 445.0, "forecast": None, "previous": 440.0, "importance": 1, "surprise_pct": None}],
+        macro_condensed_counts={},
         triggered_alerts=[],
         tactical_positions=[{"name": "现金/子弹", "price": None}],
         news_items=[],
@@ -1687,6 +1787,26 @@ def test_render_email_never_leaks_none_for_missing_price_or_forecast():
     assert "None" not in html
     assert "无实时报价" in html
     assert "无数据" in html
+
+
+def test_render_email_shows_macro_condensed_counts_as_one_liner():
+    html = render_email(
+        session="evening",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={"油气数据": 4, "贵金属持仓": 12},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result=None,
+    )
+
+    assert "油气数据4项更新" in html
+    assert "贵金属持仓12项更新" in html
 
 
 def test_send_email_calls_smtp_with_expected_args():
@@ -1810,6 +1930,7 @@ def render_email(
     sector_flow: dict | None,
     watchlist_quotes: list[dict],
     macro_updates: list[dict],
+    macro_condensed_counts: dict[str, int],
     triggered_alerts: list[dict],
     tactical_positions: list[dict],
     news_items: list[dict],
@@ -1835,14 +1956,18 @@ def render_email(
     if llm_result and llm_result.get("sector_highlights"):
         parts.append(f"<p>{llm_result['sector_highlights']}</p>")
 
-    if macro_updates:
+    if macro_updates or macro_condensed_counts:
         parts.append("<h2>宏观数据</h2>")
-        items = "".join(
-            f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
-            f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
-            for m in macro_updates
-        )
-        parts.append(f"<ul>{items}</ul>")
+        if macro_updates:
+            items = "".join(
+                f"<li>[{m['region']}] {m['event']}: 公布{_fmt_nullable(m['actual'])} "
+                f"预期{_fmt_nullable(m['forecast'])} 前值{_fmt_nullable(m['previous'])}</li>"
+                for m in macro_updates
+            )
+            parts.append(f"<ul>{items}</ul>")
+        if macro_condensed_counts:
+            summary = "；".join(f"{name}{count}项更新" for name, count in macro_condensed_counts.items())
+            parts.append(f"<p>另有：{summary}（常规数据更新，未展开）</p>")
         if llm_result and llm_result.get("macro_commentary"):
             parts.append(f"<p>{llm_result['macro_commentary']}</p>")
 
@@ -1884,7 +2009,7 @@ def send_email(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/notify/test_emailer.py -v`
-Expected: PASS (5 tests)
+Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1941,6 +2066,7 @@ def _patch_all(mock_is_trading_day=True):
             {"name": "纳指", "category": "fund", "code": "513100", "price": 1.5},
         ]),
         "trade_digest.main.fetch_macro_calendar": patch("trade_digest.main.fetch_macro_calendar", return_value=[]),
+        "trade_digest.main.condense_macro_updates": patch("trade_digest.main.condense_macro_updates", return_value={"highlights": [], "condensed_counts": {}}),
         "trade_digest.main.fetch_recent_news": patch("trade_digest.main.fetch_recent_news", return_value=[]),
         "trade_digest.main.is_dca_strategy_due": patch("trade_digest.main.is_dca_strategy_due", return_value=False),
         "trade_digest.main.save_dca_strategy_run_date": patch("trade_digest.main.save_dca_strategy_run_date"),
@@ -2024,7 +2150,7 @@ from trade_digest.data.calendar import is_trading_day
 from trade_digest.data.market_overview import fetch_market_overview
 from trade_digest.data.sector_flow import fetch_sector_flow_ranking, fetch_etf_quotes
 from trade_digest.data.holdings_quotes import enrich_holdings_with_quotes
-from trade_digest.data.macro import fetch_macro_calendar
+from trade_digest.data.macro import fetch_macro_calendar, condense_macro_updates
 from trade_digest.data.news import fetch_recent_news
 from trade_digest.state import is_dca_strategy_due, save_dca_strategy_run_date
 from trade_digest.analysis.holdings_alert import evaluate_alerts
@@ -2063,19 +2189,23 @@ def run(session: str, today: date) -> None:
 
     tactical_positions = [p for p in holdings_flat if p["category"] in TACTICAL_CATEGORIES]
 
-    macro_updates = fetch_macro_calendar(settings["macro"]["regions"], today)
+    macro_updates_raw = fetch_macro_calendar(settings["macro"]["regions"], today)
+    macro_condensed = condense_macro_updates(macro_updates_raw)
+    macro_highlights = macro_condensed["highlights"]
+    macro_condensed_counts = macro_condensed["condensed_counts"]
+
     news_items = fetch_recent_news(settings["news"]["fetch_limit"])
 
     dca_due = is_dca_strategy_due(settings["dca_strategy"]["refresh_days"], today, STATE_FILE)
 
-    payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_updates, news_items, tactical_positions, dca_due)
+    payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_highlights, news_items, tactical_positions, dca_due)
     llm_client = get_llm_client()
     llm_result = synthesize_report(llm_client, payload)
 
     if dca_due and llm_result and llm_result.get("dca_strategy"):
         save_dca_strategy_run_date(today, STATE_FILE)
 
-    macro_priority_alerts = build_macro_priority_alerts(macro_updates, settings["macro"]["surprise_threshold_pct"])
+    macro_priority_alerts = build_macro_priority_alerts(macro_highlights, settings["macro"]["surprise_threshold_pct"])
     news_priority_alerts = (llm_result or {}).get("priority_alerts") or []
     priority_alerts = macro_priority_alerts + news_priority_alerts
 
@@ -2085,7 +2215,8 @@ def run(session: str, today: date) -> None:
         market_overview=market_overview,
         sector_flow=sector_flow,
         watchlist_quotes=watchlist_quotes,
-        macro_updates=macro_updates,
+        macro_updates=macro_highlights,
+        macro_condensed_counts=macro_condensed_counts,
         triggered_alerts=triggered_alerts,
         tactical_positions=tactical_positions,
         news_items=news_items,
@@ -2204,3 +2335,5 @@ git commit -m "Fix live-data issues found during manual end-to-end verification"
 - **Fix applied during execution (Task 6 review finding)**: `fetch_sector_flow_ranking`'s `df.head(top_n)`/`df.tail(top_n)` could overlap when `top_n * 2 > len(df)`, letting one sector appear in both `top_inflow` and `top_outflow` — a plan-mandated defect (present in the example code) confirmed to actually manifest with the task's own 3-row test fixture and `top_n=2`. Fixed in the plan text by excluding the `top` rows before taking `tail(top_n)` for `bottom`, and added a test (`test_fetch_sector_flow_ranking_top_and_bottom_never_overlap`) asserting the two result sets are disjoint. The human confirmed fixing immediately.
 - **Fix applied during execution (Task 13 review finding)**: `render_email`'s `tactical_positions` parameter (raw price/cost_price for gold and short-term securities holdings) was accepted but never rendered — only the LLM's `tactical_scores` interpretation showed up, meaning the raw position data disappeared from the email entirely whenever the LLM call failed (`llm_result=None`), leaving only alert-trigger lines (a different, narrower signal). Fixed by adding `_render_tactical_positions` (renders name/price/cost_price for each tactical position, independent of `llm_result`) and calling it in `render_email` alongside `_render_tactical_scores`. Also strengthened `test_render_email_shows_fallback_banner_when_llm_result_is_none` to pass a non-empty `tactical_positions` list and assert it renders — this simultaneously closes the reviewer's noted test-coverage gap ("llm=None with non-empty raw data" was previously untested).
 - **Fix applied during execution (Task 15 manual verification finding)**: a real end-to-end run surfaced two Python `None` values leaking into the visible email text — `现金/子弹: None` (a holdings position with no live price, since it has no exchange code) and `预期None` repeated across many macro releases (obscure indicators like drilling-rig counts genuinely have no consensus forecast in the data source). Neither was caught by unit tests because no test exercised a `None` price or `None` forecast through the actual rendering path. Fixed by adding `_fmt_nullable(value)` (renders `None` as `"无数据"`) used for the macro line's `actual`/`forecast`/`previous` fields, and by having `_render_tactical_positions` render `"无实时报价"` instead of the raw price when `price is None`. Added `test_render_email_never_leaks_none_for_missing_price_or_forecast` asserting the literal string `"None"` never appears in rendered output. This is exactly the class of bug spec §13's manual-verification step exists to catch.
+- **Fix applied during execution (Task 15 manual verification finding — gold price unit mismatch)**: the real run showed 黄金's rendered "price" as `8.672` (the domestic 黄金ETF's per-share CNY price from `fetch_etf_quotes`), while `holdings.yaml`'s `cost_price: 4350`/alert threshold `4380` are denominated in USD/oz (international spot gold) per the human's clarification — these numbers were never comparable, silently defeating the entire gold alert feature (the `"price >= 4380"` condition could never realistically trigger). Fixed by adding `fetch_gold_spot_price()` (Task 5, using the verified non-eastmoney interface `ak.futures_foreign_commodity_realtime(symbol="XAU")`, returning 伦敦金/London gold in USD/oz) and special-casing `enrich_holdings_with_quotes` (Task 7) so any position in the `gold` category sources its `price` from the spot feed instead of an ETF-code lookup. The 关注ETF清单/watchlist section (a distinct feature, for glancing at ETF market data) is unaffected and still shows the gold ETF's own share price, which is the correct behavior for that section.
+- **Fix applied during execution (Task 15 manual verification finding — macro noise flooding)**: the real run's 宏观数据 section listed 25 near-identical daily commodity inventory/positioning line items (NYMEX/COMEX/iShares/SPDR gold/silver/platinum holdings, weekly drilling-rig counts), burying the few events that actually matter and violating the spec's "精简" (concise) design goal. Per the human's guidance ("merge same-category data; the focus should be Fed-published data, except oil/gas and gold holdings data"), added `condense_macro_updates` (Task 9) — a deterministic keyword classifier (not an LLM call) splitting `macro_updates` into `highlights` (core Fed/macro-indicator keywords: 利率/CPI/PMI/非农/GDP/联储/etc., shown individually) and `condensed_counts` (everything else, grouped by keyword into per-category counts, e.g. `{"油气数据": 4, "贵金属持仓": 12}`, rendered as one summary line instead of 16 bullet points). `main.py` (Task 14) now runs raw `fetch_macro_calendar` output through this classifier before it reaches `build_payload`, `build_macro_priority_alerts`, or `render_email` — so the LLM's prompt is also less cluttered, not just the email.
