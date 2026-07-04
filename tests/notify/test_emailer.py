@@ -122,6 +122,28 @@ def test_render_email_shows_macro_condensed_counts_as_one_liner():
     assert "贵金属持仓12项更新" in html
 
 
+def test_render_email_produces_valid_html_document():
+    html = render_email(
+        session="morning",
+        report_date="2026-07-02",
+        market_overview={"indices": [{"name": "上证指数", "price": 3400.0, "change_pct": 0.5}], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result={"market_summary": "大盘平稳", "sector_highlights": None, "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+    )
+
+    assert html.startswith("<!DOCTYPE html>")
+    assert '<meta charset="utf-8">' in html
+    assert '<meta name="viewport"' in html
+    assert "仅供参考，不构成投资建议" in html
+
+
 def test_send_email_calls_smtp_with_expected_args():
     fake_server = MagicMock()
     with patch("trade_digest.notify.emailer.smtplib.SMTP_SSL") as mock_smtp_ssl:
