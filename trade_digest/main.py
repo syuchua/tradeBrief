@@ -5,7 +5,18 @@ import os
 from datetime import date
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from trade_digest.config.loader import load_settings, load_holdings
+
+CONFIG_DIR = Path(__file__).parent / "config"
+STATE_FILE = Path(__file__).parent.parent / "state" / "dca_strategy_last_run.json"
+
+# 自动加载 .env 文件（本地开发）；GitHub Actions 等 CI 环境直接注入系统环境变量
+_load_dotenv_path = CONFIG_DIR / ".env"
+if _load_dotenv_path.exists():
+    load_dotenv(_load_dotenv_path)
+
 from trade_digest.data.calendar import is_trading_day
 from trade_digest.data.market_overview import fetch_market_overview
 from trade_digest.data.sector_flow import fetch_sector_flow_ranking, fetch_etf_quotes
@@ -20,9 +31,6 @@ from trade_digest.notify.emailer import render_email, send_email
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-CONFIG_DIR = Path(__file__).parent / "config"
-STATE_FILE = Path(__file__).parent.parent / "state" / "dca_strategy_last_run.json"
 
 TACTICAL_CATEGORIES = {"gold", "securities_trading"}
 
