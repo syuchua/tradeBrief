@@ -15,9 +15,15 @@ def enrich_holdings_with_quotes(holdings: dict) -> list[dict]:
     for position in flat:
         if position["category"] == "gold":
             position["price"] = gold_price
+            position["change_pct"] = None
             continue
         code = position.get("code")
         quote = quotes.get(code) if code else None
-        position["price"] = quote["price"] if quote else None
+        if quote:
+            position["price"] = quote["price"]
+            position["change_pct"] = quote.get("change_pct")
+        else:
+            position["price"] = None
+            position["change_pct"] = None
 
     return flat

@@ -32,9 +32,12 @@ def test_enrich_holdings_flattens_categories_and_attaches_price():
     by_name = {p["name"]: p for p in result}
     assert by_name["纳指"]["category"] == "fund"
     assert by_name["纳指"]["price"] == 1.55
+    assert by_name["纳指"]["change_pct"] == 0.4
     assert by_name["黄金"]["price"] == 4360.5
+    assert by_name["黄金"]["change_pct"] is None
     assert by_name["黄金"]["cost_price"] == 4350
     assert by_name["科技板块基金"]["price"] is None
+    assert by_name["科技板块基金"]["change_pct"] is None
 
 
 def test_enrich_holdings_handles_no_codes():
