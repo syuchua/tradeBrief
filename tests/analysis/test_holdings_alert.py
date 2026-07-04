@@ -33,3 +33,25 @@ def test_evaluate_alerts_skips_when_price_missing():
 def test_evaluate_alerts_handles_no_alerts_key():
     position = {"name": "现金", "price": None}
     assert evaluate_alerts(position) == []
+
+
+def test_evaluate_alerts_triggers_on_change_pct_boundary():
+    position = {
+        "name": "纳指",
+        "price": 1.5,
+        "change_pct": 5.0,
+        "alerts": [{"condition": "change_pct >= 5", "action": "注意回调风险"}],
+    }
+    result = evaluate_alerts(position)
+    assert len(result) == 1
+    assert result[0]["action"] == "注意回调风险"
+
+
+def test_evaluate_alerts_does_not_trigger_below_change_pct_threshold():
+    position = {
+        "name": "纳指",
+        "price": 1.5,
+        "change_pct": 4.99,
+        "alerts": [{"condition": "change_pct >= 5", "action": "注意回调风险"}],
+    }
+    assert evaluate_alerts(position) == []
