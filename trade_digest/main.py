@@ -23,7 +23,7 @@ from trade_digest.data.sector_flow import fetch_sector_flow_ranking, fetch_etf_q
 from trade_digest.data.holdings_quotes import enrich_holdings_with_quotes
 from trade_digest.data.macro import fetch_macro_calendar, condense_macro_updates
 from trade_digest.data.news import fetch_recent_news
-from trade_digest.state import is_dca_strategy_due, save_dca_strategy_run_date
+from trade_digest.state import is_dca_strategy_due, load_llm_cache, save_dca_strategy_run_date, save_llm_cache
 from trade_digest.analysis.holdings_alert import evaluate_alerts
 from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
@@ -67,8 +67,18 @@ def run(session: str, today: date) -> None:
     dca_due = is_dca_strategy_due(settings["dca_strategy"]["refresh_days"], today, STATE_FILE)
 
     payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_highlights, news_items, tactical_positions, dca_due)
-    llm_client = get_llm_client()
-    llm_result = synthesize_report(llm_client, payload)
+
+    cache_file = STATE_FILE.parent / "llm_cache.json"
+    cache_key = f"{today.isoformat()}_{session}"
+
+    llm_result = load_llm_cache(cache_file, cache_key)
+    if llm_result is None:
+        llm_client = get_llm_client()
+        llm_result = synthesize_report(llm_client, payload)
+        if llm_result is not None:
+            save_llm_cache(cache_file, cache_key, llm_result)
+    else:
+        logger.info("Using cached LLM result for %s", cache_key)
 
     if dca_due and llm_result and llm_result.get("dca_strategy"):
         save_dca_strategy_run_date(today, STATE_FILE)

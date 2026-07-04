@@ -34,6 +34,8 @@ def _patch_all(mock_is_trading_day=True):
         "trade_digest.main.fetch_recent_news": patch("trade_digest.main.fetch_recent_news", return_value=[]),
         "trade_digest.main.is_dca_strategy_due": patch("trade_digest.main.is_dca_strategy_due", return_value=False),
         "trade_digest.main.save_dca_strategy_run_date": patch("trade_digest.main.save_dca_strategy_run_date"),
+        "trade_digest.main.load_llm_cache": patch("trade_digest.main.load_llm_cache", return_value=None),
+        "trade_digest.main.save_llm_cache": patch("trade_digest.main.save_llm_cache"),
         "trade_digest.main.get_llm_client": patch("trade_digest.main.get_llm_client", return_value=MagicMock()),
         "trade_digest.main.synthesize_report": patch("trade_digest.main.synthesize_report", return_value={"market_summary": "ok", "tactical_scores": [], "priority_alerts": [], "dca_strategy": None, "macro_commentary": None, "sector_highlights": "ok"}),
         "trade_digest.main.render_email": patch("trade_digest.main.render_email", return_value="<html></html>"),
@@ -89,6 +91,22 @@ def test_run_saves_dca_state_when_due_and_llm_returned_strategy():
     try:
         run("evening", date(2026, 7, 2))
         started["trade_digest.main.save_dca_strategy_run_date"].assert_called_once()
+    finally:
+        for p in patches.values():
+            p.stop()
+
+
+def test_run_uses_cached_llm_result_when_available():
+    patches, started = _patch_all(mock_is_trading_day=True)
+    started["trade_digest.main.load_llm_cache"].return_value = {
+        "market_summary": "cached", "tactical_scores": [], "priority_alerts": [],
+        "dca_strategy": None, "macro_commentary": None, "sector_highlights": "cached",
+    }
+    try:
+        run("morning", date(2026, 7, 2))
+        # Should NOT call synthesize_report since cache was hit
+        started["trade_digest.main.synthesize_report"].assert_not_called()
+        started["trade_digest.main.send_email"].assert_called_once()
     finally:
         for p in patches.values():
             p.stop()
