@@ -35,18 +35,14 @@ logger = logging.getLogger(__name__)
 TACTICAL_CATEGORIES = {"gold", "securities_trading"}
 
 
-def run(session: str, today: date) -> None:
-    # 初始化日志系统（文件轮转 + 控制台）
-    setup_logging()
+def _collect_data(session: str, today: date) -> dict:
+    """采集所有市场数据，返回结构化 dict。供 run() 和 api.py 共用。
 
-    # 检查近期健康状态，获取系统告警
-    health_warnings = check_recent_health()
-
+    Raises:
+        RuntimeError: 非 A 股交易日
+    """
     if not is_trading_day(today):
-        logger.info("Not an A-share trading day, skipping session=%s", session)
-        # 非交易日也记录运行结果
-        record_run_result(today, session, trading_day=False, components={})
-        return
+        raise RuntimeError(f"{today.isoformat()} 不是 A 股交易日")
 
     settings = load_settings(CONFIG_DIR / "settings.yaml")
     holdings = load_holdings(CONFIG_DIR / "holdings.yaml")
@@ -67,14 +63,44 @@ def run(session: str, today: date) -> None:
 
     macro_updates_raw = fetch_macro_calendar(settings["macro"]["regions"], today)
     macro_condensed = condense_macro_updates(macro_updates_raw)
-    macro_highlights = macro_condensed["highlights"]
-    macro_condensed_counts = macro_condensed["condensed_counts"]
 
     news_items = fetch_recent_news(settings["news"]["fetch_limit"])
 
     dca_due = is_dca_strategy_due(settings["dca_strategy"]["refresh_days"], today, STATE_FILE)
 
-    payload = build_payload(market_overview, sector_flow, watchlist_quotes, macro_highlights, news_items, tactical_positions, dca_due)
+    return {
+        "settings": settings,
+        "holdings": holdings,
+        "market_overview": market_overview,
+        "sector_flow": sector_flow,
+        "watchlist_quotes": watchlist_quotes,
+        "holdings_flat": holdings_flat,
+        "triggered_alerts": triggered_alerts,
+        "tactical_positions": tactical_positions,
+        "macro_highlights": macro_condensed["highlights"],
+        "macro_condensed_counts": macro_condensed["condensed_counts"],
+        "news_items": news_items,
+        "dca_due": dca_due,
+        "health_warnings": check_recent_health(),
+    }
+
+
+def run(session: str, today: date) -> None:
+    # 初始化日志系统（文件轮转 + 控制台）
+    setup_logging()
+
+    try:
+        ctx = _collect_data(session, today)
+    except RuntimeError:
+        logger.info("Not an A-share trading day, skipping session=%s", session)
+        # 非交易日也记录运行结果
+        record_run_result(today, session, trading_day=False, components={})
+        return
+
+    payload = build_payload(
+        ctx["market_overview"], ctx["sector_flow"], ctx["watchlist_quotes"],
+        ctx["macro_highlights"], ctx["news_items"], ctx["tactical_positions"], ctx["dca_due"],
+    )
 
     cache_file = STATE_FILE.parent / "llm_cache.json"
     cache_key = f"{today.isoformat()}_{session}"
@@ -88,34 +114,36 @@ def run(session: str, today: date) -> None:
     else:
         logger.info("Using cached LLM result for %s", cache_key)
 
-    if dca_due and llm_result and llm_result.get("dca_strategy"):
+    if ctx["dca_due"] and llm_result and llm_result.get("dca_strategy"):
         save_dca_strategy_run_date(today, STATE_FILE)
 
-    macro_priority_alerts = build_macro_priority_alerts(macro_highlights, settings["macro"]["surprise_threshold_pct"])
+    macro_priority_alerts = build_macro_priority_alerts(
+        ctx["macro_highlights"], ctx["settings"]["macro"]["surprise_threshold_pct"],
+    )
     news_priority_alerts = (llm_result or {}).get("priority_alerts") or []
     priority_alerts = macro_priority_alerts + news_priority_alerts
 
     html = render_email(
         session=session,
         report_date=today.isoformat(),
-        market_overview=market_overview,
-        sector_flow=sector_flow,
-        watchlist_quotes=watchlist_quotes,
-        macro_updates=macro_highlights,
-        macro_condensed_counts=macro_condensed_counts,
-        triggered_alerts=triggered_alerts,
-        tactical_positions=tactical_positions,
-        news_items=news_items,
+        market_overview=ctx["market_overview"],
+        sector_flow=ctx["sector_flow"],
+        watchlist_quotes=ctx["watchlist_quotes"],
+        macro_updates=ctx["macro_highlights"],
+        macro_condensed_counts=ctx["macro_condensed_counts"],
+        triggered_alerts=ctx["triggered_alerts"],
+        tactical_positions=ctx["tactical_positions"],
+        news_items=ctx["news_items"],
         priority_alerts=priority_alerts,
         llm_result=llm_result,
-        health_warnings=health_warnings,
-        hk_market=market_overview.get("hk_market"),
+        health_warnings=ctx["health_warnings"],
+        hk_market=ctx["market_overview"].get("hk_market"),
     )
 
     # 追踪各组件运行状态
     components = {
-        "market_overview": isinstance(market_overview, (list, dict)),
-        "sector_flow": sector_flow is not None,
+        "market_overview": isinstance(ctx["market_overview"], (list, dict)),
+        "sector_flow": ctx["sector_flow"] is not None,
         KEY_LLM: llm_result is not None,
         KEY_EMAIL: False,  # 下面 try/except 中更新
     }
@@ -128,7 +156,7 @@ def run(session: str, today: date) -> None:
             smtp_user=smtp.user,
             smtp_password=smtp.password,
             sender=smtp.sender,
-            recipients=settings["email"]["recipients"],
+            recipients=ctx["settings"]["email"]["recipients"],
             subject=f"{today.isoformat()} {session} 交易简报",
             html_body=html,
         )
