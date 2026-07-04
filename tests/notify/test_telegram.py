@@ -39,4 +39,5 @@ def test_telegram_sender_posts_correct_payload():
     mock_post.assert_called_once()
     kwargs = mock_post.call_args.kwargs
     assert kwargs["json"]["chat_id"] == "123"
-    assert "*Test*" in kwargs["json"]["text"]
+    assert "<b>Test</b>" in kwargs["json"]["text"]
+    assert kwargs["json"]["parse_mode"] == "HTML"

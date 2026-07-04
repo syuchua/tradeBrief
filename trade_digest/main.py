@@ -39,6 +39,29 @@ logger = logging.getLogger(__name__)
 TACTICAL_CATEGORIES = {"gold", "securities_trading"}
 
 
+def _html_to_plain(html: str) -> str:
+    """将简报 HTML 转为可读纯文本，保留链接和段落结构。"""
+    # <a href="X">text</a> → text (X)
+    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>', r"\2 (\1)", html)
+    # 块级元素前后加换行
+    for tag in ("h1", "h2", "h3", "p", "table", "/table", "tr", "/tr", "ol", "/ol", "hr"):
+        text = text.replace(f"<{tag}", f"\n<{tag}")
+        text = text.replace(f"</{tag}>", f"</{tag}>\n")
+    # <br> → 换行
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    # <td>/<th> → 分隔符
+    text = re.sub(r"</t[dh]>\s*<t[dh]", " | ", text)
+    text = re.sub(r"</t[dh]>", "  ", text)
+    # <li> → bullet
+    text = re.sub(r"<li[^>]*>", "• ", text)
+    text = re.sub(r"</li>", "\n", text)
+    # 去除剩余 HTML 标签
+    text = re.sub(r"<[^>]+>", "", text)
+    # 清理空白
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _collect_data(session: str, today: date, *, force: bool = False) -> dict:
     """采集所有市场数据，返回结构化 dict。供 run() 和 api.py 共用。
 
@@ -168,9 +191,8 @@ def run(session: str, today: date, *, force: bool = False) -> None:
         KEY_EMAIL: False,
     }
 
-    # 生成纯文本版本
-    plain = re.sub(r"<[^>]+>", "", html)
-    plain = "\n".join(line.strip() for line in plain.splitlines() if line.strip())
+    # 生成纯文本版本（给 Telegram / 飞书 text 等渠道用）
+    plain = _html_to_plain(html)
 
     try:
         sent_count = send_all(

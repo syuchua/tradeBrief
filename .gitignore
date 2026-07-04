@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .env
 state/*.json
+state/*.log
 trade_digest/config/settings.yaml
 trade_digest/config/holdings.yaml
 .superpowers/

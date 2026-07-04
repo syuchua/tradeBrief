@@ -245,10 +245,13 @@ def _render_news(news_items: list[dict]) -> str:
 
     rows = ""
     for n in news_items[:5]:
+        url = n.get("url", "")
+        link = f'<a href="{url}" style="color:#2c3e50;text-decoration:none;">' if url else ""
+        link_end = "</a>" if url else ""
         rows += (
             "<tr>"
             f'<td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:14px;">'
-            f"📰 [{n['tag']}] {n['summary']}</td>"
+            f"📰 {link}[{n['tag']}] {n['summary']}{link_end}</td>"
             "</tr>"
         )
 

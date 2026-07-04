@@ -39,18 +39,35 @@ def try_create_feishu_sender() -> tuple[str, Callable] | None:
 
 
 def _html_to_feishu_md(html: str) -> str:
-    """将简报 HTML 转为飞书卡片支持的 markdown 文本。"""
-    text = re.sub(r"<h1[^>]*>", "**", html)
-    text = re.sub(r"</h1>", "**\n\n", text)
+    """将简报 HTML 转为飞书卡片支持的 markdown 文本。
+
+    飞书卡片 markdown 支持：**粗体** *斜体* [链接](url) 无序列表 换行
+    """
+    # <a> 链接 → markdown [text](url)
+    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>', r"[\2](\1)", html)
+    # 块级元素前后加换行
+    for tag in ("h1", "h2", "h3", "p", "table", "/table", "tr", "/tr", "ul", "/ul", "ol", "/ol", "hr"):
+        text = text.replace(f"<{tag}", f"\n<{tag}")
+        text = text.replace(f"</{tag}>", f"</{tag}>\n")
+    # <br> → 换行
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    # <td> / <th> — 单元格之间加分隔
+    text = re.sub(r"</t[dh]>\s*<t[dh]", " | ", text)
+    text = re.sub(r"</t[dh]>", "  ", text)
+    # 标题 → markdown
+    text = re.sub(r"<h1[^>]*>", "**", text)
+    text = re.sub(r"</h1>", "**\n", text)
     text = re.sub(r"<h2[^>]*>", "**", text)
-    text = re.sub(r"</h2>", "**\n\n", text)
+    text = re.sub(r"</h2>", "**\n", text)
     text = re.sub(r"<h3[^>]*>", "*", text)
-    text = re.sub(r"</h3>", "*\n\n", text)
+    text = re.sub(r"</h3>", "*\n", text)
+    # <li> → bullet
     text = re.sub(r"<li[^>]*>", "• ", text)
     text = re.sub(r"</li>", "\n", text)
-    text = re.sub(r"<br\s*/?>", "\n", text)
-    text = re.sub(r"<hr[^>]*>", "\n---\n", text)
+    # 去掉剩余 HTML 标签
     text = re.sub(r"<[^>]+>", "", text)
-    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    # 清理空白
+    lines = [line.rstrip() for line in text.splitlines()]
+    text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text[:15000]
+    return text.strip()[:15000]
