@@ -10,6 +10,7 @@ MAJOR_INDEX_CODES = {"sh000001", "sz399001", "sz399006", "sh000300", "sh000688"}
 
 
 def fetch_index_snapshot() -> list[dict] | None:
+    """Fetch A-share major index snapshots with fallback data source."""
     try:
         df = ak.stock_zh_index_spot_sina()
         df = df[df["代码"].isin(MAJOR_INDEX_CODES)]
@@ -18,8 +19,16 @@ def fetch_index_snapshot() -> list[dict] | None:
             for _, row in df.iterrows()
         ]
     except Exception:
-        logger.exception("Failed to fetch index snapshot")
-        return None
+        logger.warning("Primary index source (sina) failed, trying fallback (eastmoney)")
+        try:
+            df = ak.stock_zh_index_daily(symbol="sh000001")  # 上证指数
+            # stock_zh_index_daily 返回的是历史数据，取最新一行
+            # 只需要上证指数作为最基础的 fallback
+            latest = df.iloc[-1]
+            return [{"name": "上证指数", "price": float(latest["close"]), "change_pct": float(latest.get("pct_chg", 0))}]
+        except Exception:
+            logger.exception("Both primary and fallback index sources failed")
+            return None
 
 
 def fetch_market_breadth() -> dict | None:

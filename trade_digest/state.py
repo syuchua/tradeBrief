@@ -14,3 +14,30 @@ def is_dca_strategy_due(refresh_days: int, today: date, state_file: Path) -> boo
 def save_dca_strategy_run_date(today: date, state_file: Path) -> None:
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({"last_run": today.isoformat()}), encoding="utf-8")
+
+
+def load_llm_cache(cache_file: Path, cache_key: str) -> dict | None:
+    """Load cached LLM result for the given key. Returns None if missing or stale."""
+    if not cache_file.exists():
+        return None
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        entry = data.get(cache_key)
+        if entry:
+            return entry
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return None
+
+
+def save_llm_cache(cache_file: Path, cache_key: str, result: dict) -> None:
+    """Save LLM result under the given cache key."""
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if cache_file.exists():
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, FileNotFoundError):
+            data = {}
+    data[cache_key] = result
+    cache_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

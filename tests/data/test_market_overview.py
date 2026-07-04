@@ -32,8 +32,21 @@ def test_fetch_index_snapshot_filters_major_indices():
 
 
 def test_fetch_index_snapshot_returns_none_on_error():
-    with patch("trade_digest.data.market_overview.ak.stock_zh_index_spot_sina", side_effect=RuntimeError("boom")):
+    with patch("trade_digest.data.market_overview.ak.stock_zh_index_spot_sina", side_effect=RuntimeError("boom")), \
+         patch("trade_digest.data.market_overview.ak.stock_zh_index_daily", side_effect=RuntimeError("boom")):
         assert fetch_index_snapshot() is None
+
+
+def test_fetch_index_snapshot_falls_back_to_eastmoney():
+    fake_daily_df = pd.DataFrame({
+        "date": ["2026-07-01"],
+        "close": [3400.5],
+        "pct_chg": [0.5],
+    })
+    with patch("trade_digest.data.market_overview.ak.stock_zh_index_spot_sina", side_effect=RuntimeError("sina down")), \
+         patch("trade_digest.data.market_overview.ak.stock_zh_index_daily", return_value=fake_daily_df):
+        result = fetch_index_snapshot()
+    assert result == [{"name": "上证指数", "price": 3400.5, "change_pct": 0.5}]
 
 
 def test_fetch_market_breadth_parses_long_format():
