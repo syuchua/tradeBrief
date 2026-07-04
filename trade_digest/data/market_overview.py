@@ -84,6 +84,17 @@ def fetch_gold_spot_price() -> float | None:
         return None
 
 
+def fetch_hk_snapshot() -> dict | None:
+    """获取恒生指数收盘价，使用 ak.stock_hk_index_daily_sina(symbol="HSI")。"""
+    try:
+        df = ak.stock_hk_index_daily_sina(symbol="HSI")
+        latest = df.iloc[-1]
+        return {"hsi_close": float(latest["close"])}
+    except Exception:
+        logger.exception("Failed to fetch Hong Kong market snapshot (best-effort)")
+        return None
+
+
 def fetch_market_overview(session: str) -> dict:
     return {
         "indices": fetch_index_snapshot(),
@@ -91,4 +102,5 @@ def fetch_market_overview(session: str) -> dict:
         "margin": fetch_margin_ratio(),
         "us_market": fetch_us_market_snapshot(),
         "asia_market": fetch_asia_snapshot() if session == "morning" else None,
+        "hk_market": fetch_hk_snapshot(),
     }

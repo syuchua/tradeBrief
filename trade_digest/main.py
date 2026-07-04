@@ -100,6 +100,7 @@ def run(session: str, today: date) -> None:
         priority_alerts=priority_alerts,
         llm_result=llm_result,
         health_warnings=health_warnings,
+        hk_market=market_overview.get("hk_market"),
     )
 
     # 追踪各组件运行状态

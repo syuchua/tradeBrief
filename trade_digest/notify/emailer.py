@@ -257,6 +257,12 @@ def _render_news(news_items: list[dict]) -> str:
     )
 
 
+def _render_hk_market(hk_market: dict | None) -> str:
+    if not hk_market:
+        return "<p>（恒生指数数据缺失）</p>"
+    return f"<p>恒生指数收盘: {hk_market['hsi_close']:.2f}</p>"
+
+
 def _render_priority_alerts(
     priority_alerts: list[dict], tier3_max_items: int = 5
 ) -> str:
@@ -325,6 +331,7 @@ def render_email(
     priority_alerts: list[dict],
     llm_result: dict | None,
     health_warnings: list[str] | None = None,
+    hk_market: dict | None = None,
 ) -> str:
     session_label = SESSION_LABELS.get(session, session)
     title = f"{report_date} {session_label}交易简报"
@@ -360,6 +367,8 @@ def render_email(
     # --- Market overview ---
     parts.append(_section_heading("📊", "大盘概览"))
     parts.append(_render_indices(market_overview.get("indices")))
+    if hk_market:
+        parts.append(_render_hk_market(hk_market))
     if llm_result and llm_result.get("market_summary"):
         parts.append(
             f'<p style="font-size:14px;color:#2c3e50;line-height:1.6;margin:12px 0;">'

@@ -24,7 +24,7 @@ def _patch_all(mock_is_trading_day=True):
                 "fund": {"total_weight": 0.4, "positions": [{"name": "纳指", "code": "513100"}]},
             }
         }),
-        "trade_digest.main.fetch_market_overview": patch("trade_digest.main.fetch_market_overview", return_value={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None}),
+        "trade_digest.main.fetch_market_overview": patch("trade_digest.main.fetch_market_overview", return_value={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None, "hk_market": None}),
         "trade_digest.main.fetch_sector_flow_ranking": patch("trade_digest.main.fetch_sector_flow_ranking", return_value={"top_inflow": [], "top_outflow": []}),
         "trade_digest.main.fetch_etf_quotes": patch("trade_digest.main.fetch_etf_quotes", return_value={}),
         "trade_digest.main.enrich_holdings_with_quotes": patch("trade_digest.main.enrich_holdings_with_quotes", return_value=[

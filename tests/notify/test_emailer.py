@@ -18,6 +18,7 @@ def test_render_email_includes_core_sections_with_llm_result():
         news_items=[{"tag": "市场", "summary": "消息一", "url": "https://a"}],
         priority_alerts=[],
         llm_result={"market_summary": "大盘平稳", "sector_highlights": "半导体流入", "macro_commentary": None, "tactical_scores": [{"name": "黄金", "score": "中性", "reason": "接近目标价"}], "priority_alerts": [], "dca_strategy": None},
+        hk_market=None,
     )
 
     assert "早盘" in html
@@ -44,6 +45,7 @@ def test_render_email_shows_fallback_banner_when_llm_result_is_none():
         news_items=[],
         priority_alerts=[],
         llm_result=None,
+        hk_market=None,
     )
 
     assert "AI解读生成失败" in html
@@ -70,6 +72,7 @@ def test_render_email_highlights_tier_one_and_two_and_summarizes_tier_four():
             {"tier": 4, "category": "常规", "summary": "另一条无关消息", "reason": "不关注板块"},
         ],
         llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+        hk_market=None,
     )
 
     assert "非农大超预期" in html
@@ -95,6 +98,7 @@ def test_render_email_never_leaks_none_for_missing_price_or_forecast():
         news_items=[],
         priority_alerts=[],
         llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+        hk_market=None,
     )
 
     assert "None" not in html
@@ -116,6 +120,7 @@ def test_render_email_shows_macro_condensed_counts_as_one_liner():
         news_items=[],
         priority_alerts=[],
         llm_result=None,
+        hk_market=None,
     )
 
     assert "油气数据4项更新" in html
@@ -136,6 +141,7 @@ def test_render_email_produces_valid_html_document():
         news_items=[],
         priority_alerts=[],
         llm_result={"market_summary": "大盘平稳", "sector_highlights": None, "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+        hk_market=None,
     )
 
     assert html.startswith("<!DOCTYPE html>")
@@ -159,6 +165,7 @@ def test_render_email_shows_health_warnings():
         priority_alerts=[],
         llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
         health_warnings=["⚠️ LLM 调用最近 3/5 次运行失败，请检查 API key 和额度"],
+        hk_market=None,
     )
 
     assert "系统告警" in html
@@ -181,9 +188,51 @@ def test_render_email_no_health_warnings_by_default():
         news_items=[],
         priority_alerts=[],
         llm_result=None,
+        hk_market=None,
     )
 
     assert "系统告警" not in html
+
+
+def test_render_email_shows_hk_market_when_provided():
+    html = render_email(
+        session="morning",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result=None,
+        hk_market={"hsi_close": 23350.03},
+    )
+
+    assert "恒生指数收盘" in html
+    assert "23350.03" in html
+
+
+def test_render_email_omits_hk_market_when_none():
+    html = render_email(
+        session="morning",
+        report_date="2026-07-02",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result=None,
+        hk_market=None,
+    )
+
+    assert "恒生指数收盘" not in html
 
 
 def test_send_email_calls_smtp_with_expected_args():
