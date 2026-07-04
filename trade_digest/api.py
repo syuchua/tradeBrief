@@ -18,7 +18,7 @@ from pathlib import Path
 from trade_digest.main import _collect_data
 from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
-from trade_digest.notify.emailer import render_email
+from trade_digest.notify.render import render_report
 from trade_digest.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ def generate_report(
     news_priority_alerts = (llm_result or {}).get("priority_alerts") or []
     priority_alerts = macro_priority_alerts + news_priority_alerts
 
-    html = render_email(
+    html = render_report(
         session=session,
         report_date=today.isoformat(),
         market_overview=ctx["market_overview"],

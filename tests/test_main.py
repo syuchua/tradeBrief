@@ -41,8 +41,7 @@ def _patch_all(mock_is_trading_day=True):
         "trade_digest.main.save_llm_cache": patch("trade_digest.main.save_llm_cache"),
         "trade_digest.main.get_llm_client": patch("trade_digest.main.get_llm_client", return_value=MagicMock()),
         "trade_digest.main.synthesize_report": patch("trade_digest.main.synthesize_report", return_value={"market_summary": "ok", "tactical_scores": [], "priority_alerts": [], "dca_strategy": None, "macro_commentary": None, "sector_highlights": "ok"}),
-        "trade_digest.main.render_email": patch("trade_digest.main.render_email", return_value="<html></html>"),
-        "trade_digest.main.send_email": patch("trade_digest.main.send_email"),
+        "trade_digest.main.render_report": patch("trade_digest.main.render_report", return_value="<html></html>"),
         "trade_digest.main.send_all": patch("trade_digest.main.send_all", return_value=1),
     }
     # resolve_smtp_config 需要返回有效的 SmtpConfig 让 email channel 能注册
@@ -80,7 +79,7 @@ def test_run_sends_email_on_trading_day():
     try:
         run("morning", date(2026, 7, 2))
         started["trade_digest.main.send_all"].assert_called_once()
-        started["trade_digest.main.render_email"].assert_called_once()
+        started["trade_digest.main.render_report"].assert_called_once()
     finally:
         for p in patches.values():
             p.stop()

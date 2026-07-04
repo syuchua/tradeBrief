@@ -29,7 +29,8 @@ from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
 from trade_digest.logging_config import setup_logging
 from trade_digest.health import record_run_result, check_recent_health, KEY_LLM, KEY_EMAIL
-from trade_digest.notify.emailer import render_email, send_email, resolve_smtp_config, try_create_email_sender
+from trade_digest.notify.emailer import resolve_smtp_config, try_create_email_sender
+from trade_digest.notify.render import render_report
 from trade_digest.notify.dispatch import register, send_all
 from trade_digest.notify.feishu import try_create_feishu_sender
 from trade_digest.notify.telegram import try_create_telegram_sender
@@ -153,7 +154,7 @@ def run(session: str, today: date, *, force: bool = False) -> None:
     news_priority_alerts = (llm_result or {}).get("priority_alerts") or []
     priority_alerts = macro_priority_alerts + news_priority_alerts
 
-    html = render_email(
+    html = render_report(
         session=session,
         report_date=today.isoformat(),
         market_overview=ctx["market_overview"],
