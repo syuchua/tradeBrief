@@ -51,6 +51,7 @@ def generate_report(
     today: date | None = None,
     *,
     enable_llm: bool = True,
+    force: bool = False,
 ) -> ReportContext:
     """生成一份完整的交易简报，返回结构化上下文。
 
@@ -58,17 +59,18 @@ def generate_report(
         session: "morning" 或 "evening"
         today: 日期，默认今天。非交易日会抛出 RuntimeError
         enable_llm: 是否调用 LLM（False 时跳过，只采集数据 + 渲染）
+        force: 强制运行，跳过交易日检查
 
     Returns:
         包含所有数据和已渲染 HTML 的 ReportContext
 
     Raises:
-        RuntimeError: 非交易日
+        RuntimeError: 非交易日且未指定 force
     """
     if today is None:
         today = date.today()
 
-    ctx = _collect_data(session, today)
+    ctx = _collect_data(session, today, force=force)
 
     payload = build_payload(
         ctx["market_overview"], ctx["sector_flow"], ctx["watchlist_quotes"],
@@ -129,10 +131,11 @@ def export_html(
     output_dir: str | Path = ".",
     *,
     enable_llm: bool = True,
+    force: bool = False,
 ) -> Path:
     """生成简报并导出为独立 HTML 文件，不发送任何通知。"""
     setup_logging()
-    report = generate_report(session, today, enable_llm=enable_llm)
+    report = generate_report(session, today, enable_llm=enable_llm, force=force)
     filename = f"trade_digest_{report.report_date.isoformat()}_{session}.html"
     path = Path(output_dir) / filename
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,10 +150,11 @@ def export_markdown(
     output_dir: str | Path = ".",
     *,
     enable_llm: bool = True,
+    force: bool = False,
 ) -> Path:
     """生成简报并导出为 Markdown 文本文件，不发送任何通知。"""
     setup_logging()
-    report = generate_report(session, today, enable_llm=enable_llm)
+    report = generate_report(session, today, enable_llm=enable_llm, force=force)
     md = _html_to_markdown(report.html)
     filename = f"trade_digest_{report.report_date.isoformat()}_{session}.md"
     path = Path(output_dir) / filename

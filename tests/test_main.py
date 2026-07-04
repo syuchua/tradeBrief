@@ -64,6 +64,17 @@ def test_run_skips_everything_on_non_trading_day():
             p.stop()
 
 
+def test_run_force_bypasses_trading_day_check():
+    """--force 跳过交易日检查，周末也能运行。"""
+    patches, started = _patch_all(mock_is_trading_day=False)
+    try:
+        run("morning", date(2026, 7, 4), force=True)
+        started["trade_digest.main.send_all"].assert_called_once()
+    finally:
+        for p in patches.values():
+            p.stop()
+
+
 def test_run_sends_email_on_trading_day():
     patches, started = _patch_all(mock_is_trading_day=True)
     try:

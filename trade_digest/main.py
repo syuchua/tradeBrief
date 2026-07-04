@@ -39,14 +39,17 @@ logger = logging.getLogger(__name__)
 TACTICAL_CATEGORIES = {"gold", "securities_trading"}
 
 
-def _collect_data(session: str, today: date) -> dict:
+def _collect_data(session: str, today: date, *, force: bool = False) -> dict:
     """采集所有市场数据，返回结构化 dict。供 run() 和 api.py 共用。
 
+    Args:
+        force: 强制运行，跳过交易日检查（用于周末/节假日手动测试）
+
     Raises:
-        RuntimeError: 非 A 股交易日
+        RuntimeError: 非 A 股交易日且未指定 force
     """
-    if not is_trading_day(today):
-        raise RuntimeError(f"{today.isoformat()} 不是 A 股交易日")
+    if not force and not is_trading_day(today):
+        raise RuntimeError(f"{today.isoformat()} 不是 A 股交易日，使用 --force 可强制运行")
 
     settings = load_settings(CONFIG_DIR / "settings.yaml")
     holdings = load_holdings(CONFIG_DIR / "holdings.yaml")
@@ -89,12 +92,12 @@ def _collect_data(session: str, today: date) -> dict:
     }
 
 
-def run(session: str, today: date) -> None:
+def run(session: str, today: date, *, force: bool = False) -> None:
     # 初始化日志系统（文件轮转 + 控制台）
     setup_logging()
 
     try:
-        ctx = _collect_data(session, today)
+        ctx = _collect_data(session, today, force=force)
     except RuntimeError:
         logger.info("Not an A-share trading day, skipping session=%s", session)
         # 非交易日也记录运行结果
@@ -189,5 +192,6 @@ def run(session: str, today: date) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--session", choices=["morning", "evening"], required=True)
+    parser.add_argument("--force", action="store_true", help="强制运行，跳过交易日检查")
     args = parser.parse_args()
-    run(args.session, date.today())
+    run(args.session, date.today(), force=args.force)
