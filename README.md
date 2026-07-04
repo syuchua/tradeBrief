@@ -18,7 +18,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/syuchua/tradeBrief
 cd trade_digest
 ```
 
@@ -193,4 +193,4 @@ trade_digest/
 
 ## 许可证
 
-MIT
+[MIT](./LICENSE)

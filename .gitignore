@@ -10,3 +10,4 @@ trade_digest/config/holdings.yaml
 .superpowers/
 .pytest_cache/
 .ruff_cache/
+reports/
