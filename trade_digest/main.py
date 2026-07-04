@@ -90,6 +90,7 @@ def run(session: str, today: date) -> None:
         news_items=news_items,
         priority_alerts=priority_alerts,
         llm_result=llm_result,
+        hk_market=market_overview.get("hk_market"),
     )
 
     send_email(

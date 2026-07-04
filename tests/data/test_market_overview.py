@@ -11,6 +11,7 @@ from trade_digest.data.market_overview import (
     fetch_us_market_snapshot,
     fetch_asia_snapshot,
     fetch_gold_spot_price,
+    fetch_hk_snapshot,
     fetch_market_overview,
 )
 
@@ -92,15 +93,35 @@ def test_fetch_gold_spot_price_returns_none_on_error():
         assert fetch_gold_spot_price() is None
 
 
+def test_fetch_hk_snapshot_reads_latest_close():
+    fake_df = pd.DataFrame({
+        "date": [date(2026, 7, 2), date(2026, 7, 3)],
+        "close": [23055.03, 23350.03],
+    })
+    with patch("trade_digest.data.market_overview.ak.stock_hk_index_daily_sina", return_value=fake_df):
+        result = fetch_hk_snapshot()
+    assert result == {"hsi_close": 23350.03}
+
+
+def test_fetch_hk_snapshot_returns_none_on_error():
+    with patch("trade_digest.data.market_overview.ak.stock_hk_index_daily_sina", side_effect=RuntimeError("boom")):
+        assert fetch_hk_snapshot() is None
+
+
 def test_fetch_market_overview_includes_asia_only_for_morning():
     with patch("trade_digest.data.market_overview.fetch_index_snapshot", return_value=[]), \
          patch("trade_digest.data.market_overview.fetch_market_breadth", return_value=None), \
          patch("trade_digest.data.market_overview.fetch_margin_ratio", return_value=None), \
          patch("trade_digest.data.market_overview.fetch_us_market_snapshot", return_value=None), \
-         patch("trade_digest.data.market_overview.fetch_asia_snapshot", return_value={"nikkei_close": 39000.0}) as asia_mock:
+         patch("trade_digest.data.market_overview.fetch_asia_snapshot", return_value={"nikkei_close": 39000.0}) as asia_mock, \
+         patch("trade_digest.data.market_overview.fetch_hk_snapshot", return_value={"hsi_close": 23350.03}) as hk_mock:
         morning = fetch_market_overview("morning")
         evening = fetch_market_overview("evening")
 
     assert morning["asia_market"] == {"nikkei_close": 39000.0}
     assert evening["asia_market"] is None
     asia_mock.assert_called_once()
+    # hk_market 不分 session，早晚盘都获取
+    assert morning["hk_market"] == {"hsi_close": 23350.03}
+    assert evening["hk_market"] == {"hsi_close": 23350.03}
+    assert hk_mock.call_count == 2
