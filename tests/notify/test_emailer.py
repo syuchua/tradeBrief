@@ -1,7 +1,16 @@
 # tests/notify/test_emailer.py
+import os
 from unittest.mock import patch, MagicMock
 
-from trade_digest.notify.emailer import render_email, send_email
+import pytest
+
+from trade_digest.notify.emailer import (
+    render_email,
+    send_email,
+    resolve_smtp_config,
+    SmtpConfig,
+    SMTP_PRESETS,
+)
 
 
 def test_render_email_includes_core_sections_with_llm_result():
@@ -233,6 +242,74 @@ def test_render_email_omits_hk_market_when_none():
     )
 
     assert "恒生指数收盘" not in html
+
+
+# ---------------------------------------------------------------------------
+# SMTP config resolver tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_smtp_uses_qq_preset():
+    env = {"SMTP_PROVIDER": "qq", "SMTP_USER": "me@qq.com", "SMTP_PASSWORD": "secret"}
+    with patch.dict(os.environ, env, clear=True):
+        cfg = resolve_smtp_config()
+    assert cfg.host == "smtp.qq.com"
+    assert cfg.port == 465
+    assert cfg.user == "me@qq.com"
+    assert cfg.password == "secret"
+    assert cfg.sender == "me@qq.com"
+
+
+def test_resolve_smtp_uses_gmail_preset():
+    env = {"SMTP_PROVIDER": "gmail", "SMTP_USER": "me@gmail.com", "SMTP_PASSWORD": "secret"}
+    with patch.dict(os.environ, env, clear=True):
+        cfg = resolve_smtp_config()
+    assert cfg.host == "smtp.gmail.com"
+    assert cfg.port == 587
+
+
+def test_resolve_smtp_custom_sender():
+    env = {
+        "SMTP_PROVIDER": "qq",
+        "SMTP_USER": "me@qq.com",
+        "SMTP_PASSWORD": "secret",
+        "SMTP_SENDER": "noreply@qq.com",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = resolve_smtp_config()
+    assert cfg.sender == "noreply@qq.com"
+
+
+def test_resolve_smtp_explicit_mode():
+    """向后兼容：直接设置 SMTP_HOST 等变量（不使用 SMTP_PROVIDER）"""
+    env = {
+        "SMTP_HOST": "smtp.custom.com",
+        "SMTP_PORT": "2525",
+        "SMTP_USER": "me@custom.com",
+        "SMTP_PASSWORD": "secret",
+        "SMTP_SENDER": "sender@custom.com",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = resolve_smtp_config()
+    assert cfg.host == "smtp.custom.com"
+    assert cfg.port == 2525
+    assert cfg.user == "me@custom.com"
+    assert cfg.sender == "sender@custom.com"
+
+
+def test_resolve_smtp_unknown_provider_raises():
+    env = {"SMTP_PROVIDER": "nonexistent", "SMTP_USER": "x", "SMTP_PASSWORD": "x"}
+    with patch.dict(os.environ, env, clear=True):
+        with pytest.raises(ValueError, match="Unknown SMTP provider"):
+            resolve_smtp_config()
+
+
+def test_resolve_smtp_presets_completeness():
+    """所有预设必须包含 host 和 port"""
+    for name, cfg in SMTP_PRESETS.items():
+        assert "host" in cfg, f"{name} missing host"
+        assert "port" in cfg, f"{name} missing port"
+        assert isinstance(cfg["port"], int), f"{name} port must be int"
 
 
 def test_send_email_calls_smtp_with_expected_args():

@@ -1,7 +1,6 @@
 # trade_digest/main.py
 import argparse
 import logging
-import os
 from datetime import date
 from pathlib import Path
 
@@ -29,7 +28,7 @@ from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
 from trade_digest.logging_config import setup_logging
 from trade_digest.health import record_run_result, check_recent_health, KEY_LLM, KEY_EMAIL
-from trade_digest.notify.emailer import render_email, send_email
+from trade_digest.notify.emailer import render_email, send_email, resolve_smtp_config
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +121,13 @@ def run(session: str, today: date) -> None:
     }
 
     try:
+        smtp = resolve_smtp_config()
         send_email(
-            smtp_host=os.environ["SMTP_HOST"],
-            smtp_port=int(os.environ.get("SMTP_PORT", "465")),
-            smtp_user=os.environ["SMTP_USER"],
-            smtp_password=os.environ["SMTP_PASSWORD"],
-            sender=os.environ.get("SMTP_SENDER", os.environ["SMTP_USER"]),
+            smtp_host=smtp.host,
+            smtp_port=smtp.port,
+            smtp_user=smtp.user,
+            smtp_password=smtp.password,
+            sender=smtp.sender,
             recipients=settings["email"]["recipients"],
             subject=f"{today.isoformat()} {session} 交易简报",
             html_body=html,

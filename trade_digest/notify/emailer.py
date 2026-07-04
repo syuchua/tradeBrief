@@ -1,5 +1,7 @@
 # trade_digest/notify/emailer.py
+import os
 import smtplib
+from dataclasses import dataclass
 from email.mime.text import MIMEText
 
 SESSION_LABELS = {"morning": "早盘", "evening": "晚间"}
@@ -455,7 +457,58 @@ def render_email(
 
 
 # ---------------------------------------------------------------------------
-# SMTP sender — unchanged
+# SMTP config resolver
+# ---------------------------------------------------------------------------
+
+SMTP_PRESETS = {
+    "qq": {"host": "smtp.qq.com", "port": 465},
+    "gmail": {"host": "smtp.gmail.com", "port": 587},
+    "163": {"host": "smtp.163.com", "port": 465},
+    "outlook": {"host": "smtp-mail.outlook.com", "port": 587},
+    "126": {"host": "smtp.126.com", "port": 465},
+}
+
+
+@dataclass(frozen=True)
+class SmtpConfig:
+    host: str
+    port: int
+    user: str
+    password: str
+    sender: str
+
+
+def resolve_smtp_config() -> SmtpConfig:
+    """Resolve SMTP configuration from environment variables.
+
+    支持两种模式：
+    1. 预设模式：设置 SMTP_PROVIDER=qq，只需 SMTP_USER + SMTP_PASSWORD
+       host/port 从 SMTP_PRESETS 自动查表，sender 默认 = SMTP_USER
+    2. 显式模式（向后兼容）：直接设置 SMTP_HOST/SMTP_PORT/SMTP_USER/
+       SMTP_PASSWORD/SMTP_SENDER
+    """
+    provider = os.environ.get("SMTP_PROVIDER")
+    if provider:
+        preset = SMTP_PRESETS.get(provider.lower())
+        if preset is None:
+            raise ValueError(
+                f"Unknown SMTP provider {provider!r}, available: {', '.join(SMTP_PRESETS)}"
+            )
+        host = preset["host"]
+        port = preset["port"]
+    else:
+        host = os.environ["SMTP_HOST"]
+        port = int(os.environ.get("SMTP_PORT", "465"))
+
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASSWORD"]
+    sender = os.environ.get("SMTP_SENDER", user)
+
+    return SmtpConfig(host=host, port=port, user=user, password=password, sender=sender)
+
+
+# ---------------------------------------------------------------------------
+# SMTP sender
 # ---------------------------------------------------------------------------
 
 
