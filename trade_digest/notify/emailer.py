@@ -1,6 +1,7 @@
 # trade_digest/notify/emailer.py
 import os
 import smtplib
+from collections.abc import Callable
 from dataclasses import dataclass
 from email.mime.text import MIMEText
 
@@ -530,3 +531,24 @@ def send_email(
     with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
         server.login(smtp_user, smtp_password)
         server.sendmail(sender, recipients, message.as_string())
+
+
+def try_create_email_sender(
+    smtp_config: SmtpConfig,
+    recipients: list[str],
+) -> tuple[str, Callable[[dict[str, str]], None]]:
+    """创建邮件发送 channel 闭包。"""
+
+    def send(msg: dict[str, str]) -> None:
+        send_email(
+            smtp_host=smtp_config.host,
+            smtp_port=smtp_config.port,
+            smtp_user=smtp_config.user,
+            smtp_password=smtp_config.password,
+            sender=smtp_config.sender,
+            recipients=recipients,
+            subject=msg["subject"],
+            html_body=msg["html"],
+        )
+
+    return ("email", send)

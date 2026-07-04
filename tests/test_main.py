@@ -43,7 +43,12 @@ def _patch_all(mock_is_trading_day=True):
         "trade_digest.main.synthesize_report": patch("trade_digest.main.synthesize_report", return_value={"market_summary": "ok", "tactical_scores": [], "priority_alerts": [], "dca_strategy": None, "macro_commentary": None, "sector_highlights": "ok"}),
         "trade_digest.main.render_email": patch("trade_digest.main.render_email", return_value="<html></html>"),
         "trade_digest.main.send_email": patch("trade_digest.main.send_email"),
+        "trade_digest.main.send_all": patch("trade_digest.main.send_all", return_value=1),
     }
+    # resolve_smtp_config 需要返回有效的 SmtpConfig 让 email channel 能注册
+    from trade_digest.notify.emailer import SmtpConfig
+    mock_smtp = SmtpConfig(host="smtp.test.invalid", port=465, user="test@example.com", password="test", sender="test@example.com")
+    patches["trade_digest.main.resolve_smtp_config"] = patch("trade_digest.main.resolve_smtp_config", return_value=mock_smtp)
     started = {name: p.start() for name, p in patches.items()}
     return patches, started
 
@@ -53,7 +58,7 @@ def test_run_skips_everything_on_non_trading_day():
     try:
         run("morning", date(2026, 7, 4))
         started["trade_digest.main.load_settings"].assert_not_called()
-        started["trade_digest.main.send_email"].assert_not_called()
+        started["trade_digest.main.send_all"].assert_not_called()
     finally:
         for p in patches.values():
             p.stop()
@@ -63,7 +68,7 @@ def test_run_sends_email_on_trading_day():
     patches, started = _patch_all(mock_is_trading_day=True)
     try:
         run("morning", date(2026, 7, 2))
-        started["trade_digest.main.send_email"].assert_called_once()
+        started["trade_digest.main.send_all"].assert_called_once()
         started["trade_digest.main.render_email"].assert_called_once()
     finally:
         for p in patches.values():
@@ -109,7 +114,7 @@ def test_run_uses_cached_llm_result_when_available():
         run("morning", date(2026, 7, 2))
         # Should NOT call synthesize_report since cache was hit
         started["trade_digest.main.synthesize_report"].assert_not_called()
-        started["trade_digest.main.send_email"].assert_called_once()
+        started["trade_digest.main.send_all"].assert_called_once()
     finally:
         for p in patches.values():
             p.stop()

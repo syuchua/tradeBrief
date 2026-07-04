@@ -1,6 +1,7 @@
 # trade_digest/main.py
 import argparse
 import logging
+import re
 from datetime import date
 from pathlib import Path
 
@@ -28,7 +29,10 @@ from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
 from trade_digest.logging_config import setup_logging
 from trade_digest.health import record_run_result, check_recent_health, KEY_LLM, KEY_EMAIL
-from trade_digest.notify.emailer import render_email, send_email, resolve_smtp_config
+from trade_digest.notify.emailer import render_email, send_email, resolve_smtp_config, try_create_email_sender
+from trade_digest.notify.dispatch import register, send_all
+from trade_digest.notify.feishu import try_create_feishu_sender
+from trade_digest.notify.telegram import try_create_telegram_sender
 
 logger = logging.getLogger(__name__)
 
@@ -112,29 +116,43 @@ def run(session: str, today: date) -> None:
         hk_market=market_overview.get("hk_market"),
     )
 
+    # 注册通知渠道
+    email_available = False
+    try:
+        smtp = resolve_smtp_config()
+        recipients = settings["email"]["recipients"]
+        if recipients:
+            register(lambda cfg=smtp, rcpt=recipients: try_create_email_sender(cfg, rcpt))
+            email_available = True
+    except (KeyError, ValueError):
+        logger.info("Email channel not configured")
+    register(try_create_feishu_sender)
+    register(try_create_telegram_sender)
+
     # 追踪各组件运行状态
     components = {
         "market_overview": isinstance(market_overview, (list, dict)),
         "sector_flow": sector_flow is not None,
         KEY_LLM: llm_result is not None,
-        KEY_EMAIL: False,  # 下面 try/except 中更新
+        KEY_EMAIL: False,
     }
 
+    # 生成纯文本版本
+    plain = re.sub(r"<[^>]+>", "", html)
+    plain = "\n".join(line.strip() for line in plain.splitlines() if line.strip())
+
     try:
-        smtp = resolve_smtp_config()
-        send_email(
-            smtp_host=smtp.host,
-            smtp_port=smtp.port,
-            smtp_user=smtp.user,
-            smtp_password=smtp.password,
-            sender=smtp.sender,
-            recipients=settings["email"]["recipients"],
+        sent_count = send_all(
+            html=html,
             subject=f"{today.isoformat()} {session} 交易简报",
-            html_body=html,
+            plain=plain,
         )
-        components["email"] = True
+        if sent_count > 0:
+            components[KEY_EMAIL] = True
+    except RuntimeError as e:
+        logger.error("%s", e)
     except Exception:
-        logger.exception("Failed to send email")
+        logger.exception("Failed to dispatch notifications")
 
     # 记录本次运行结果
     record_run_result(today, session, trading_day=True, components=components)
