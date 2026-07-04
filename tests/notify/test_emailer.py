@@ -122,6 +122,48 @@ def test_render_email_shows_macro_condensed_counts_as_one_liner():
     assert "贵金属持仓12项更新" in html
 
 
+def test_render_email_shows_health_warnings():
+    html = render_email(
+        session="morning",
+        report_date="2026-07-03",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result={"market_summary": "ok", "sector_highlights": "ok", "macro_commentary": None, "tactical_scores": [], "priority_alerts": [], "dca_strategy": None},
+        health_warnings=["⚠️ LLM 调用最近 3/5 次运行失败，请检查 API key 和额度"],
+    )
+
+    assert "系统告警" in html
+    assert "LLM 调用" in html
+    assert "#fff3cd" in html
+    assert "#ffa500" in html
+
+
+def test_render_email_no_health_warnings_by_default():
+    html = render_email(
+        session="morning",
+        report_date="2026-07-03",
+        market_overview={"indices": [], "breadth": None, "margin": None, "us_market": None, "asia_market": None},
+        sector_flow=None,
+        watchlist_quotes=[],
+        macro_updates=[],
+        macro_condensed_counts={},
+        triggered_alerts=[],
+        tactical_positions=[],
+        news_items=[],
+        priority_alerts=[],
+        llm_result=None,
+    )
+
+    assert "系统告警" not in html
+
+
 def test_send_email_calls_smtp_with_expected_args():
     fake_server = MagicMock()
     with patch("trade_digest.notify.emailer.smtplib.SMTP_SSL") as mock_smtp_ssl:

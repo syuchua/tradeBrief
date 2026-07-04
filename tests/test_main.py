@@ -6,6 +6,9 @@ from trade_digest.main import run
 
 def _patch_all(mock_is_trading_day=True):
     patches = {
+        "trade_digest.main.setup_logging": patch("trade_digest.main.setup_logging"),
+        "trade_digest.main.check_recent_health": patch("trade_digest.main.check_recent_health", return_value=[]),
+        "trade_digest.main.record_run_result": patch("trade_digest.main.record_run_result"),
         "trade_digest.main.is_trading_day": patch("trade_digest.main.is_trading_day", return_value=mock_is_trading_day),
         "trade_digest.main.load_settings": patch("trade_digest.main.load_settings", return_value={
             "sector_flow": {"top_n": 5, "watchlist_etfs": [{"name": "纳指", "code": "513100"}]},

@@ -97,9 +97,21 @@ def render_email(
     news_items: list[dict],
     priority_alerts: list[dict],
     llm_result: dict | None,
+    health_warnings: list[str] | None = None,
 ) -> str:
     session_label = SESSION_LABELS.get(session, session)
     parts = [f"<h1>{report_date} {session_label}简报</h1>"]
+
+    # 系统健康告警（如有连续失败）
+    if health_warnings:
+        warning_items = "".join(f"<li>{w}</li>" for w in health_warnings)
+        parts.append(
+            f"<div style='background-color:#fff3cd; border:1px solid #ffa500; "
+            f"padding:10px; margin:10px 0; border-radius:4px'>"
+            f"<h3 style='color:#856404; margin:0 0 5px 0'>系统告警</h3>"
+            f"<ul style='margin:0; color:#856404'>{warning_items}</ul>"
+            f"</div>"
+        )
 
     if llm_result is None:
         parts.append("<p><strong>AI解读生成失败，仅展示原始数据</strong></p>")
