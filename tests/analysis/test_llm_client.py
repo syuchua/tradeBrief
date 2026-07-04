@@ -22,7 +22,8 @@ def test_openai_compatible_client_parses_json_content():
 
 def test_anthropic_client_parses_json_content():
     fake_response = MagicMock()
-    fake_response.json.return_value = {"content": [{"text": '{"market_summary": "ok"}'}]}
+    # Anthropic prefill starts with "{", so the response text omits the opening brace
+    fake_response.json.return_value = {"content": [{"text": '"market_summary": "ok"}'}]}
     fake_response.raise_for_status.return_value = None
     client = AnthropicClient(api_key="key", model="claude-test")
 
@@ -32,6 +33,31 @@ def test_anthropic_client_parses_json_content():
     assert result == {"market_summary": "ok"}
     called_url = mock_post.call_args.args[0]
     assert called_url == "https://api.anthropic.com/v1/messages"
+
+
+def test_openai_compatible_client_strips_markdown_fence():
+    fake_response = MagicMock()
+    fake_response.json.return_value = {"choices": [{"message": {"content": '```json\n{"market_summary": "ok"}\n```'}}]}
+    fake_response.raise_for_status.return_value = None
+    client = OpenAICompatibleClient(base_url="https://api.example.com/v1", api_key="key", model="gpt-test")
+
+    with patch("trade_digest.analysis.llm_client.requests.post", return_value=fake_response):
+        result = client.generate("system prompt", {"foo": "bar"})
+
+    assert result == {"market_summary": "ok"}
+
+
+def test_anthropic_client_strips_markdown_fence():
+    fake_response = MagicMock()
+    # Simulate model continuing after "{" prefill but still adding trailing markdown fence
+    fake_response.json.return_value = {"content": [{"text": '"market_summary": "ok"}\n```'}]}
+    fake_response.raise_for_status.return_value = None
+    client = AnthropicClient(api_key="key", model="claude-test")
+
+    with patch("trade_digest.analysis.llm_client.requests.post", return_value=fake_response):
+        result = client.generate("system prompt", {"foo": "bar"})
+
+    assert result == {"market_summary": "ok"}
 
 
 def test_get_llm_client_returns_anthropic_when_configured():

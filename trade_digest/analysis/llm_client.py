@@ -1,10 +1,29 @@
 import json
 import os
+import re
 from typing import Protocol
 
 import requests
 
 _JSON_INSTRUCTION = "\n\nRespond with a single valid JSON object only, no other text, no markdown code fences."
+
+
+def _parse_json_content(content: str) -> dict:
+    """Robust JSON parsing: strips markdown code fences and falls back to regex extraction."""
+    content = content.strip()
+    # Strip markdown code fences if present
+    content = re.sub(r'^```(?:json)?\s*', '', content)
+    content = re.sub(r'\s*```$', '', content)
+    content = content.strip()
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        # Fallback: try to extract JSON object via regex
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        raise
 
 
 class LLMClient(Protocol):
@@ -27,12 +46,13 @@ class OpenAICompatibleClient:
                     {"role": "system", "content": system_prompt + _JSON_INSTRUCTION},
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                 ],
+                "response_format": {"type": "json_object"},
             },
             timeout=60,
         )
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
-        return json.loads(content)
+        return _parse_json_content(content)
 
 
 class AnthropicClient:
@@ -52,13 +72,18 @@ class AnthropicClient:
                 "model": self.model,
                 "max_tokens": 2048,
                 "system": system_prompt + _JSON_INSTRUCTION,
-                "messages": [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                "messages": [
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                    {"role": "assistant", "content": "{"},
+                ],
             },
             timeout=60,
         )
         response.raise_for_status()
         content = response.json()["content"][0]["text"]
-        return json.loads(content)
+        # Anthropic prefill may prepend "{" — prepend it back for valid JSON
+        content = "{" + content
+        return _parse_json_content(content)
 
 
 def get_llm_client() -> LLMClient:
