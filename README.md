@@ -41,25 +41,44 @@ cp trade_digest/config/holdings.example.yaml trade_digest/config/holdings.yaml
 
 ### 4. 环境变量
 
-在 `trade_digest/config/.env` 中配置以下变量（本地开发），或直接在系统环境变量中设置：
+在 `trade_digest/config/.env` 中配置以下变量（本地开发），或直接在系统环境变量中设置。
+
+> **注意：至少需要配置一个通知渠道**（邮件 / 飞书 / Telegram），否则运行时会报错 `没有配置任何通知渠道`。你可以同时配置多个渠道，程序会并行推送到所有已配置的渠道。
 
 ```bash
-# 邮件配置（必需）
-SMTP_PROVIDER=qq          # 预设模式：qq/gmail/163/outlook，自动查找 host/port
-SMTP_USER=your@qq.com     # SMTP 登录用户
-SMTP_PASSWORD=your_code   # SMTP 授权码（非邮箱密码）
-
 # LLM 配置（必需）
 LLM_PROVIDER=openai       # openai 或 anthropic
 LLM_API_KEY=sk-xxx        # API 密钥
 LLM_BASE_URL=https://api.openai.com/v1  # 可选：兼容 OpenAI API 的代理地址
 LLM_MODEL=gpt-4o-mini     # 可选：模型名称
 
-# 可选通知渠道
+# === 通知渠道（至少选一个） ===
+
+# 方式一：邮件
+SMTP_PROVIDER=qq          # 预设模式：qq/gmail/163/outlook，自动查找 host/port
+SMTP_USER=your@qq.com     # SMTP 登录用户
+SMTP_PASSWORD=your_code   # SMTP 授权码（非邮箱密码）
+
+# 方式二：飞书机器人（可选）
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+
+# 方式三：Telegram Bot（可选）
 TELEGRAM_BOT_TOKEN=xxx
 TELEGRAM_CHAT_ID=xxx
 ```
+
+#### 预设模式 vs 显式模式
+
+使用 `SMTP_PROVIDER` 时，程序自动从预设表查找 host 和 port：
+
+| Provider | Host | Port |
+|----------|------|------|
+| `qq` | smtp.qq.com | 465 |
+| `163` | smtp.163.com | 465 |
+| `gmail` | smtp.gmail.com | 587 |
+| `outlook` | smtp-mail.outlook.com | 587 |
+
+也可以使用显式模式（不设 `SMTP_PROVIDER`，直接填 `SMTP_HOST` / `SMTP_PORT`）。
 
 ### 5. 命令行运行
 
@@ -69,7 +88,12 @@ uv run python -m trade_digest.main --session morning
 
 # 晚间简报
 uv run python -m trade_digest.main --session evening
+
+# 强制运行（周末/节假日测试时跳过交易日检查）
+uv run python -m trade_digest.main --session morning --force
 ```
+
+`--force` 参数在非交易日也能运行，方便调试和验证配置。
 
 ## 程序化调用
 
@@ -84,6 +108,9 @@ print(report.llm_result["market_summary"])
 
 # 只采集数据 + 渲染，不调用 LLM
 report = generate_report("evening", enable_llm=False)
+
+# 周末强制运行（跳过交易日检查）
+report = generate_report("morning", force=True)
 
 # 导出为 HTML 文件
 path = export_html("evening", output_dir="./reports")
@@ -118,26 +145,51 @@ trade_digest/
 │   ├── llm_client.py        # LLM 客户端（OpenAI / Anthropic）
 │   └── synthesize.py        # Prompt 构建 + 结果解析
 └── notify/
-    └── emailer.py           # HTML 邮件渲染 + SMTP 发送
+    ├── emailer.py           # HTML 邮件渲染 + SMTP 发送
+    ├── feishu.py            # 飞书自定义机器人推送
+    ├── telegram.py          # Telegram Bot 推送
+    └── dispatch.py          # 多渠道调度器
 ```
 
 ## GitHub Actions 自动推送
 
-项目包含 GitHub Actions 工作流（`.github/workflows/trade-digest.yml`），配置好以下 Secrets 即可实现每个交易日自动推送：
+项目包含 GitHub Actions 工作流（`.github/workflows/trade-digest.yml`），在每个交易日自动运行早晚盘推送。配置 Secrets 后即可上线。
+
+### 必需的 Secrets
 
 | Secret | 说明 |
 |--------|------|
-| `SETTINGS_YAML` | `settings.yaml` 文件内容 |
-| `HOLDINGS_YAML` | `holdings.yaml` 文件内容 |
-| `SMTP_PROVIDER` | SMTP 预设名称（如 `qq`） |
-| `SMTP_USER` | SMTP 登录用户 |
-| `SMTP_PASSWORD` | SMTP 授权码 |
+| `SETTINGS_YAML` | `settings.yaml` 文件完整内容 |
+| `HOLDINGS_YAML` | `holdings.yaml` 文件完整内容 |
 | `LLM_PROVIDER` | `openai` 或 `anthropic` |
 | `LLM_API_KEY` | LLM API 密钥 |
-| `LLM_BASE_URL` | 可选：API 代理地址 |
-| `LLM_MODEL` | 可选：模型名称 |
+| `LLM_BASE_URL` | 可选：API 代理地址（如 DeepSeek） |
+| `LLM_MODEL` | 可选：模型名称（默认 `gpt-4o-mini`） |
 
-定时间表：周一至周五早盘 UTC 01:30（北京时间 09:30），晚盘 UTC 07:30（北京时间 15:30）。
+### 通知渠道 Secrets（至少选一个）
+
+| Secret | 对应渠道 | 说明 |
+|--------|----------|------|
+| `SMTP_PROVIDER` | 邮件 | 预设名称：`qq` / `gmail` / `163` / `outlook` |
+| `SMTP_USER` | 邮件 | SMTP 登录用户 |
+| `SMTP_PASSWORD` | 邮件 | SMTP 授权码 |
+| `FEISHU_WEBHOOK_URL` | 飞书 | 可选：飞书机器人 Webhook 地址 |
+| `TELEGRAM_BOT_TOKEN` | Telegram | 可选：Bot Token |
+| `TELEGRAM_CHAT_ID` | Telegram | 可选：目标 Chat ID |
+
+> 如果邮件、飞书、Telegram 都不想用，也可以只配显式 SMTP（`SMTP_HOST` + `SMTP_PORT`）。**只要有一个渠道配好即可。**
+
+### 定时 + 手动触发
+
+定时间表：周一至周五 **早盘 09:30**（UTC 01:30）、**晚盘 15:30**（UTC 07:30）。
+
+手动触发：Actions 页面 → 选择 workflow → Run workflow → 选择 `morning` 或 `evening`。
+
+### 配置步骤
+
+1. 仓库页面 → Settings → Secrets and variables → Actions → New repository secret
+2. 逐个添加上述 Secrets
+3. 去 Actions 页面手动触发一次 `morning` 验证
 
 ## 许可证
 
