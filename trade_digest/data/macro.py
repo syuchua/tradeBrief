@@ -22,6 +22,8 @@ def _to_float(value) -> float | None:
 def fetch_macro_calendar(regions: list[str], today: date) -> list[dict]:
     try:
         df = ak.news_economic_baidu(date=today.strftime("%Y%m%d"))
+        if df.empty:
+            return []
         df = df[df["地区"].isin(regions)]
         df = df[df["公布"].notna()]
 
