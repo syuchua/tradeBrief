@@ -28,7 +28,7 @@ from trade_digest.analysis.holdings_alert import evaluate_alerts
 from trade_digest.analysis.llm_client import get_llm_client
 from trade_digest.analysis.synthesize import build_payload, synthesize_report, build_macro_priority_alerts
 from trade_digest.logging_config import setup_logging
-from trade_digest.health import record_run_result, check_recent_health
+from trade_digest.health import record_run_result, check_recent_health, KEY_LLM, KEY_EMAIL
 from trade_digest.notify.emailer import render_email, send_email
 
 logger = logging.getLogger(__name__)
@@ -115,13 +115,12 @@ def run(session: str, today: date) -> None:
 
     # 追踪各组件运行状态
     components = {
-        "market_overview": isinstance(market_overview, (list, dict)) and market_overview is not None,
+        "market_overview": isinstance(market_overview, (list, dict)),
         "sector_flow": sector_flow is not None,
-        "llm": llm_result is not None,
-        "email": False,  # 下面 try/except 中更新
+        KEY_LLM: llm_result is not None,
+        KEY_EMAIL: False,  # 下面 try/except 中更新
     }
 
-    email_sent = False
     try:
         send_email(
             smtp_host=os.environ["SMTP_HOST"],
@@ -133,7 +132,6 @@ def run(session: str, today: date) -> None:
             subject=f"{today.isoformat()} {session} 交易简报",
             html_body=html,
         )
-        email_sent = True
         components["email"] = True
     except Exception:
         logger.exception("Failed to send email")

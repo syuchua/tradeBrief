@@ -6,3 +6,6 @@ __pycache__/
 state/*.json
 trade_digest/config/settings.yaml
 trade_digest/config/holdings.yaml
+.superpowers/
+.pytest_cache/
+.ruff_cache/

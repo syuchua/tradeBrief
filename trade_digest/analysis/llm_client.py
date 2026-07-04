@@ -6,6 +6,7 @@ from typing import Protocol
 import requests
 
 _JSON_INSTRUCTION = "\n\nRespond with a single valid JSON object only, no other text, no markdown code fences."
+_ANTHROPIC_PREFILL = "{"  # prefill assistant response to force JSON output
 
 
 def _parse_json_content(content: str) -> dict:
@@ -74,7 +75,7 @@ class AnthropicClient:
                 "system": system_prompt + _JSON_INSTRUCTION,
                 "messages": [
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-                    {"role": "assistant", "content": "{"},
+                    {"role": "assistant", "content": _ANTHROPIC_PREFILL},
                 ],
             },
             timeout=60,
@@ -82,7 +83,7 @@ class AnthropicClient:
         response.raise_for_status()
         content = response.json()["content"][0]["text"]
         # Anthropic prefill may prepend "{" — prepend it back for valid JSON
-        content = "{" + content
+        content = _ANTHROPIC_PREFILL + content
         return _parse_json_content(content)
 
 

@@ -5,6 +5,16 @@ from pathlib import Path
 
 _HEALTH_FILE_DEFAULT = Path(__file__).parent.parent / "state" / "health.json"
 
+# 需要健康检查的组件 key，供 main.py 和 check_recent_health 共同引用
+KEY_LLM = "llm"
+KEY_EMAIL = "email"
+
+# 健康检查规则：(key, label, advice)
+_HEALTH_CHECKS = [
+    (KEY_LLM, "LLM 调用", "请检查 API key 和额度"),
+    (KEY_EMAIL, "邮件发送", "请检查 SMTP 配置"),
+]
+
 
 def record_run_result(
     run_date: date,
@@ -21,7 +31,7 @@ def record_run_result(
     if target.exists():
         try:
             records = json.loads(target.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, FileNotFoundError):
+        except json.JSONDecodeError:
             records = []
 
     records.append({
@@ -50,23 +60,15 @@ def check_recent_health(health_file: Path | None = None, window: int = 5) -> lis
 
     try:
         records = json.loads(target.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, FileNotFoundError):
-        return []
-
-    if not records:
+    except json.JSONDecodeError:
         return []
 
     recent = records[-window:]
     warnings = []
 
-    # 检查最近 N 次运行是否 LLM 全部失败
-    llm_failures = sum(1 for r in recent if not r.get("components", {}).get("llm", True))
-    if llm_failures >= min(3, len(recent)):
-        warnings.append(f"⚠️ LLM 调用最近 {llm_failures}/{len(recent)} 次运行失败，请检查 API key 和额度")
-
-    # 检查最近 N 次运行是否邮件全部失败
-    email_failures = sum(1 for r in recent if not r.get("components", {}).get("email", True))
-    if email_failures >= min(3, len(recent)):
-        warnings.append(f"⚠️ 邮件发送最近 {email_failures}/{len(recent)} 次运行失败，请检查 SMTP 配置")
+    for key, label, advice in _HEALTH_CHECKS:
+        failures = sum(1 for r in recent if not r.get("components", {}).get(key, True))
+        if failures >= min(3, len(recent)):
+            warnings.append(f"⚠️ {label} 最近 {failures}/{len(recent)} 次运行失败，{advice}")
 
     return warnings
