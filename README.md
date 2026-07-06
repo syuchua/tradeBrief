@@ -128,6 +128,7 @@ trade_digest/
 ├── health.py                # 健康监控与运行记录
 ├── logging_config.py        # 日志配置（文件轮转 + 控制台输出）
 ├── state.py                 # 持久化状态（定投运行日期 / LLM 缓存）
+├── timeout.py                # 网络调用超时保护（防御境外 IP 被限流导致的静默挂起）
 ├── config/
 │   ├── loader.py            # YAML 配置加载
 │   ├── settings.example.yaml

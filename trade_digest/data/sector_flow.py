@@ -3,12 +3,14 @@ import logging
 
 import akshare as ak
 
+from trade_digest.timeout import with_timeout
+
 logger = logging.getLogger(__name__)
 
 
 def fetch_sector_flow_ranking(top_n: int) -> dict | None:
     try:
-        df = ak.stock_fund_flow_concept(symbol="即时")
+        df = with_timeout(ak.stock_fund_flow_concept, symbol="即时")
         df = df.sort_values("净额", ascending=False)
         top = df.head(top_n)
         remaining = df.iloc[top_n:]  # exclude rows already in `top` so inflow/outflow never overlap
@@ -30,7 +32,7 @@ def fetch_etf_quotes(codes: list[str]) -> dict:
     if not codes:
         return {}
     try:
-        df = ak.fund_etf_category_sina(symbol="ETF基金")
+        df = with_timeout(ak.fund_etf_category_sina, symbol="ETF基金")
         df = df.assign(short_code=df["代码"].str[-6:])
         result = {}
         for code in codes:
