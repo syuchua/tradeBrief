@@ -179,8 +179,8 @@ workflow 会在运行前检查 `SETTINGS_YAML` / `HOLDINGS_YAML` 这两个 Secre
 
 | Secret | 说明 |
 |--------|------|
-| `SETTINGS_YAML` | `settings.yaml` 文件完整内容 |
-| `HOLDINGS_YAML` | `holdings.yaml` 文件完整内容 |
+| `SETTINGS_YAML` | `settings.yaml` 文件完整内容，直接粘贴，无需额外转义或引号包裹 |
+| `HOLDINGS_YAML` | `holdings.yaml` 文件完整内容，同上 |
 
 ### 通知渠道 Secrets（至少选一个）
 

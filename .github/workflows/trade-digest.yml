@@ -36,13 +36,16 @@ jobs:
         run: uv sync
 
       - name: Set config files from secrets (if provided)
+        env:
+          SETTINGS_YAML: ${{ secrets.SETTINGS_YAML }}
+          HOLDINGS_YAML: ${{ secrets.HOLDINGS_YAML }}
         run: |
           mkdir -p trade_digest/config
-          if [ -n "${{ secrets.SETTINGS_YAML }}" ]; then
-            echo "${{ secrets.SETTINGS_YAML }}" > trade_digest/config/settings.yaml
+          if [ -n "$SETTINGS_YAML" ]; then
+            printf '%s\n' "$SETTINGS_YAML" > trade_digest/config/settings.yaml
           fi
-          if [ -n "${{ secrets.HOLDINGS_YAML }}" ]; then
-            echo "${{ secrets.HOLDINGS_YAML }}" > trade_digest/config/holdings.yaml
+          if [ -n "$HOLDINGS_YAML" ]; then
+            printf '%s\n' "$HOLDINGS_YAML" > trade_digest/config/holdings.yaml
           fi
 
       - name: Determine session
