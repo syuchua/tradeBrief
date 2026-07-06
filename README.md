@@ -153,18 +153,34 @@ trade_digest/
 
 ## GitHub Actions 自动推送
 
-项目包含 GitHub Actions 工作流（`.github/workflows/trade-digest.yml`），在每个交易日自动运行早晚盘推送。配置 Secrets 后即可上线。
+项目包含 GitHub Actions 工作流（`.github/workflows/trade-digest.yml`），在每个交易日自动运行早晚盘推送。
+
+### 配置文件的两种模式
+
+workflow 会在运行前检查 `SETTINGS_YAML` / `HOLDINGS_YAML` 这两个 Secret：**如果配置了，用 Secret 内容覆盖仓库里的 yaml 文件；如果没配置，直接使用仓库里已有的 `trade_digest/config/settings.yaml` / `holdings.yaml`。**
+
+| 模式 | 适用场景 | 前提 |
+|------|----------|------|
+| **Secrets 模式**（推荐） | 仓库是 public，或不想把持仓信息提交到 git 历史 | 配置 `SETTINGS_YAML` / `HOLDINGS_YAML` 两个 Secret |
+| **仓库文件模式** | 仓库是 **private**，可以接受真实持仓写进 git 历史 | 不配置这两个 Secret，直接把真实 `settings.yaml` / `holdings.yaml` 提交到仓库 |
+
+> ⚠️ **仓库文件模式只能用于 private 仓库。** 如果仓库是 public 的，任何人都能看到你的持仓、成本价、告警阈值等信息。`.gitignore` 只能防止本地 `git add` 误提交，无法阻止你手动在 GitHub 网页上创建/编辑这两个文件——一旦这样做，它们就已经进入 git 历史，即使之后删除，历史记录里仍能找到。
 
 ### 必需的 Secrets
 
 | Secret | 说明 |
 |--------|------|
-| `SETTINGS_YAML` | `settings.yaml` 文件完整内容 |
-| `HOLDINGS_YAML` | `holdings.yaml` 文件完整内容 |
 | `LLM_PROVIDER` | `openai` 或 `anthropic` |
 | `LLM_API_KEY` | LLM API 密钥 |
 | `LLM_BASE_URL` | 可选：API 代理地址（如 DeepSeek） |
 | `LLM_MODEL` | 可选：模型名称（默认 `gpt-4o-mini`） |
+
+### 可选：Secrets 模式所需
+
+| Secret | 说明 |
+|--------|------|
+| `SETTINGS_YAML` | `settings.yaml` 文件完整内容 |
+| `HOLDINGS_YAML` | `holdings.yaml` 文件完整内容 |
 
 ### 通知渠道 Secrets（至少选一个）
 

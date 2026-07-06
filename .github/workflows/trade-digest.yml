@@ -35,11 +35,15 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Set config files from secrets
+      - name: Set config files from secrets (if provided)
         run: |
           mkdir -p trade_digest/config
-          echo "${{ secrets.SETTINGS_YAML }}" > trade_digest/config/settings.yaml
-          echo "${{ secrets.HOLDINGS_YAML }}" > trade_digest/config/holdings.yaml
+          if [ -n "${{ secrets.SETTINGS_YAML }}" ]; then
+            echo "${{ secrets.SETTINGS_YAML }}" > trade_digest/config/settings.yaml
+          fi
+          if [ -n "${{ secrets.HOLDINGS_YAML }}" ]; then
+            echo "${{ secrets.HOLDINGS_YAML }}" > trade_digest/config/holdings.yaml
+          fi
 
       - name: Determine session
         id: session
