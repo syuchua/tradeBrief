@@ -50,8 +50,8 @@ def _html_to_plain(html: str) -> str:
         text = text.replace(f"</{tag}>", f"</{tag}>\n")
     # <br> → 换行
     text = re.sub(r"<br\s*/?>", "\n", text)
-    # <td>/<th> → 分隔符
-    text = re.sub(r"</t[dh]>\s*<t[dh]", " | ", text)
+    # <td>/<th> → 分隔符（必须匹配完整的开始标签，包括 style 属性，否则残留属性文本会漏进输出）
+    text = re.sub(r"</t[dh]>\s*<t[dh][^>]*>", " | ", text)
     text = re.sub(r"</t[dh]>", "  ", text)
     # <li> → bullet
     text = re.sub(r"<li[^>]*>", "• ", text)

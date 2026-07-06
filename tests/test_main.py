@@ -1,7 +1,7 @@
 from datetime import date
 from unittest.mock import patch, MagicMock
 
-from trade_digest.main import run
+from trade_digest.main import run, _html_to_plain
 
 
 def _patch_all(mock_is_trading_day=True):
@@ -128,3 +128,23 @@ def test_run_uses_cached_llm_result_when_available():
     finally:
         for p in patches.values():
             p.stop()
+
+
+def test_html_to_plain_strips_style_attrs_from_adjacent_table_cells():
+    """回归测试：<th style="...">/<td style="..."> 相邻单元格之间的分隔符替换
+    之前只消费了 "<th"/"<td" 三个字符，导致 style 属性字符串原样泄漏进输出。
+    """
+    html = (
+        '<table><tr>'
+        '<th style="text-align:left;padding:10px;">指数</th>'
+        '<th style="text-align:right;padding:10px;">最新价</th>'
+        '</tr>'
+        '<tr>'
+        '<td style="padding:10px;">上证指数</td>'
+        '<td style="padding:10px;color:#27ae60;">-0.06%</td>'
+        '</tr></table>'
+    )
+    result = _html_to_plain(html)
+    assert "style=" not in result
+    assert "指数 | 最新价" in result
+    assert "上证指数 | -0.06%" in result

@@ -1,6 +1,6 @@
 import os
 from unittest.mock import patch, MagicMock
-from trade_digest.notify.feishu import try_create_feishu_sender
+from trade_digest.notify.feishu import try_create_feishu_sender, _html_to_feishu_md
 
 
 def test_try_create_returns_none_when_not_configured(monkeypatch):
@@ -32,3 +32,23 @@ def test_feishu_sender_posts_correct_payload():
     payload = mock_post.call_args.kwargs["json"]
     assert payload["msg_type"] == "interactive"
     assert payload["card"]["header"]["title"]["content"] == "Test"
+
+
+def test_html_to_feishu_md_strips_style_attrs_from_adjacent_table_cells():
+    """回归测试：<th style="...">/<td style="..."> 相邻单元格之间的分隔符替换
+    之前只消费了 "<th"/"<td" 三个字符，导致 style 属性字符串原样泄漏进输出。
+    """
+    html = (
+        '<table><tr>'
+        '<th style="text-align:left;padding:10px;">指数</th>'
+        '<th style="text-align:right;padding:10px;">最新价</th>'
+        '</tr>'
+        '<tr>'
+        '<td style="padding:10px;">上证指数</td>'
+        '<td style="padding:10px;color:#27ae60;">-0.06%</td>'
+        '</tr></table>'
+    )
+    result = _html_to_feishu_md(html)
+    assert "style=" not in result
+    assert "指数 | 最新价" in result
+    assert "上证指数 | -0.06%" in result

@@ -51,8 +51,9 @@ def _html_to_feishu_md(html: str) -> str:
         text = text.replace(f"</{tag}>", f"</{tag}>\n")
     # <br> → 换行
     text = re.sub(r"<br\s*/?>", "\n", text)
-    # <td> / <th> — 单元格之间加分隔
-    text = re.sub(r"</t[dh]>\s*<t[dh]", " | ", text)
+    # <td> / <th> — 单元格之间加分隔（必须匹配完整开始标签，含 style 属性和结尾 >，
+    # 否则只消费掉 "<th" 三个字符，会把 style="..." 属性文本原样漏进输出）
+    text = re.sub(r"</t[dh]>\s*<t[dh][^>]*>", " | ", text)
     text = re.sub(r"</t[dh]>", "  ", text)
     # 标题 → markdown
     text = re.sub(r"<h1[^>]*>", "**", text)
